@@ -2,24 +2,34 @@
 
 ## 1. Technology Stack
 
-- **Language / shell:** Python 3 + Streamlit — renders the 4-field form and hosts the page. No Python image library is used for the live generation path.
-- **AI text (chat/planning):** **Puter.js** (`https://js.puter.com/v2/`), loaded client-side inside an embedded HTML/JS component. `puter.ai.chat()` handles the theme/color free-text resolution and the content-planning step (copy + image prompts). Free under Puter's "User-Pays" model — no API keys, no backend, no cost to the app owner.
-- **AI image generation:** **Pollinations.ai**'s Flux endpoint (`image.pollinations.ai/prompt/...`) — free, unlimited, no login or API key required at all. Puter's own `puter.ai.txt2img()` was used originally, but it's billed against the signed-in account's free credit allotment, which exhausts with regular use; switched to Pollinations to remove that ceiling entirely without giving up photo quality.
+- **Language / shell:** Python 3 + Streamlit — renders the page and injects config into the embedded component. No Python image library is used for the live generation path.
+- **AI text (chat/extraction/planning):** **Groq** (`api.groq.com/openai/v1/chat/completions`, model `openai/gpt-oss-120b`), called directly from the browser — no login prompt for the visitor, ever. Requires a Groq API key, read server-side from `.env` (local) and injected into the component's HTML at render time.
+- **AI image generation:** **Puter.js** `puter.ai.txt2img()` (`gpt-image-1` model), loaded client-side via `https://js.puter.com/v2/`. Free under Puter's "User-Pays" model, but metered against the signed-in account's credit allotment — the app will occasionally prompt Puter's own sign-in popup when generating images. See §1a for why this is the current tradeoff.
 - **Compositing:** the browser's HTML5 `<canvas>` API draws the final poster (badge strip, hero + info panel, thumbnails, copy, benefit tiles, contact block, logo) — no server-side image library needed.
-- **No backend, no database.** Generation happens entirely in the visitor's browser; the Streamlit process only serves the form and injects the four field values plus branding constants into the embedded component's HTML.
-- **No secrets required.** Branding data (company name, manager name, phone, address) is public-facing by design and lives in a plain committed `branding.py`.
+- **No backend for AI calls.** Generation happens entirely in the visitor's browser; the Streamlit process only serves the page and injects field/branding/key config into the embedded component's HTML at render time.
+- **One real secret:** the Groq API key, in a gitignored `.env` (`GROQ_API_KEY`, `GROQ_MODEL`), loaded by a tiny hand-rolled parser in `app.py` (no new pip dependency). It reaches the browser as part of the rendered page — there's no backend to keep it server-side-only, so it's visible via devtools to anyone who inspects the deployed page. Acceptable for a free-tier key with no billing attached; rotate it if it's ever abused.
+
+### 1a. Why images are still on Puter (not a free/unlimited alternative)
+
+Multiple free/unlimited image alternatives were tried and rejected after empirical testing, not assumption:
+- **Pollinations.ai's Flux endpoint** is genuinely free and unlimited, but its image host returns HTTP 403 for any programmatic read (`img.crossOrigin`, `fetch()`) — confirmed by testing both directly — while still allowing a plain `<img>` embed. That blocks reading pixels onto `<canvas>` for the final PNG export.
+- Routing the fetch through **`puter.net.fetch()`** (a CORS-bypass relay bundled in Puter.js, unrelated to the image-credit pool) worked in initial testing, but the relay later started hanging indefinitely session-wide — confirmed with a fresh tab and a trivial unrelated URL, which also hung.
+- Generic public CORS proxies tried as a fallback (**allorigins.win**, **corsproxy.io**) were equally unreliable in practice: the former timed out, the latter now requires its own API key (401).
+- Pollinations' text API (a candidate for replacing Puter chat too, before Groq was chosen) actively blocks programmatic access with a Cloudflare Turnstile bot-check ("Missing Turnstile token") — works as a real page load, fails for any `fetch()`.
+
+`puter.ai.txt2img()` is the only image path that's been reliable end-to-end in practice, so it stays, with the credit/login tradeoff that implies. Revisit if Puter's relay stabilizes or a genuinely reliable free/unlimited alternative turns up.
 
 ## 2. Architecture
 
 The whole experience is one continuous chat, entirely inside a single embedded component — there is no separate Streamlit form.
 
-1. `app.py` calls `generator_template.build_component_html(branding_data)` on every page load — `branding_data` includes the Merlin logo read from disk and base64-inlined as a `data:image/png;base64,...` URI (`generator_template.encode_logo`), since the component runs in a sandboxed `srcdoc` iframe with no access to relative file paths. Rendered via `st.components.v1.html(html, height=900, scrolling=True)`.
-2. Inside the component, a client-side state machine (`stage`: `collecting` → `theme` → `color` → `generating` → `done`) drives everything:
-   - **collecting**: the assistant asks the user to describe the property; each reply is appended to an accumulating text buffer and sent to `puter.ai.chat()`, instructed to extract `{property_type, location, price, highlights, missing}` as strict JSON — Location is never listed as missing (the model is told to invent a plausible one itself); if `property_type`/`price`/`highlights` are still absent, the assistant asks specifically for those and loops.
-   - **theme**: "Day or Night?" — free-text reply resolved via `puter.ai.chat()` to strict JSON `{"theme":"day"|"night"|"unclear"}`; unclear triggers one re-ask before defaulting.
+1. `app.py` loads `GROQ_API_KEY`/`GROQ_MODEL` from `.env`, then calls `generator_template.build_component_html(branding_data)` on every page load — `branding_data` includes the Merlin logo (base64-inlined via `generator_template.encode_logo`, since the component runs in a sandboxed `srcdoc` iframe with no access to relative file paths) plus the Groq config. Rendered via `st.components.v1.html(html, height=700, scrolling=False)`.
+2. Inside the component, a client-side state machine (`stage`: `collecting` → `theme` → `color` → `generating` → `done`) drives everything, with every JSON-extraction step going through `askJSON()` (a thin wrapper around a Groq chat-completions `fetch()` call):
+   - **collecting**: the assistant asks the user to describe the property; each reply is appended to an accumulating text buffer and sent through `askJSON()`, instructed to extract `{property_type, location, price, highlights, missing}` as strict JSON — Location is never listed as missing (the model is told to invent a plausible one itself); if `property_type`/`price`/`highlights` are still absent, the assistant asks specifically for those and loops.
+   - **theme**: "Day or Night?" — free-text reply resolved to strict JSON `{"theme":"day"|"night"|"unclear"}`; unclear triggers one re-ask before defaulting.
    - **color**: same pattern, resolved to `{"hex":"#RRGGBB","label":"...","resolved":true|false}`.
-   - **generating**: a content-planning `puter.ai.chat()` call, given the four fields plus the resolved theme/color, returns strict JSON (badge text, headline, price/spec lines, About paragraph, three benefit tiles, and four image prompts baking in the theme's lighting and the accent color).
-3. Four photos (hero + three thumbnails) are fetched from Pollinations' Flux endpoint. Pollinations allows a plain `<img>` embed but returns 403 for any CORS-mode read (`img.crossOrigin`, plain `fetch()`) — confirmed by testing both directly — which would otherwise taint the canvas and break `toDataURL()`. The fetch is routed through `puter.net.fetch()` instead (a free CORS-bypass relay included in Puter.js, unrelated to the AI-generation credit pool); the response bytes are read as a `Blob`, turned into an object URL, and loaded into an `<img>` from there, which canvas can safely read. Calls run **sequentially**, not in parallel (Pollinations rate-limits anonymous requests to roughly one every 15 seconds); each call gets one automatic retry on failure. While each photo generates, an animated shimmer placeholder (CSS gradient sweep, sized to the poster's aspect ratio) plus a rotating status caption ("Generating hero photo...", etc.) render inline in the chat, mirroring a ChatGPT/Gemini-style image-generation loading state.
+   - **generating**: a content-planning call, given the four fields plus the resolved theme/color, returns strict JSON (badge text, headline, price/spec lines, About paragraph, three benefit tiles, and four image prompts baking in the theme's lighting and the accent color).
+3. Four photos (hero + three thumbnails) are generated via `puter.ai.txt2img()` with `{model: 'gpt-image-1'}` (Puter's default model and Replicate-routed FLUX models were both unreliable during earlier testing). Calls run **sequentially**, not in parallel (the free image backend throttles concurrent requests); each call gets one automatic retry on failure. While each photo generates, an animated shimmer placeholder (CSS gradient sweep, sized to the poster's aspect ratio) plus a rotating status caption ("Generating hero photo...", etc.) render inline in the chat, mirroring a ChatGPT/Gemini-style image-generation loading state.
 4. The component draws everything onto a 1080×1527 `<canvas>`, computing a manual center-crop for each photo (canvas has no CSS `object-fit`), fills the accent-colored info panel and section rules with the resolved hex, and renders the contact block from the branding constants, using either the default logo or a user-supplied custom logo (see §2a) drawn top-right.
 5. `canvas.toDataURL('image/png')` produces the final image, shown inline as the assistant's final chat message (replacing the shimmer placeholder) with a download link — no round-trip back to Python is needed for the download.
 
@@ -44,9 +54,9 @@ APPLICANT_CREDIT = "Built by Dibyajyoti Sarkar with Claude Code"  # placeholder 
 
 ## 4. Non-Functional Requirements
 
-- **Cost:** $0. Puter.js AI usage is free under the User-Pays model; hosting is Streamlit Community Cloud's free tier; no API keys, no metered services.
-- **First-run auth:** a visitor's first AI call may prompt a one-time Puter sign-in popup (free account) — this is expected behavior, not an error.
-- **Latency:** generation is not instant — two chat calls plus a planning call plus four sequential image calls typically take well under a minute but noticeably longer than the old flat-card approach; the UI shows status text throughout ("Generating hero photo...", etc.) so this reads as progress, not a hang.
+- **Cost:** $0. Groq's free-tier API key has no billing attached; Puter.js image generation is free under the User-Pays model; hosting is Streamlit Community Cloud's free tier.
+- **First-run auth:** a visitor's first *image* generation may prompt a one-time Puter sign-in popup (free account) once the account's credit allotment needs it — this is expected behavior, not an error. Text (chat/extraction/planning) never prompts anything, since it runs on Groq.
+- **Latency:** generation is not instant — chat/planning calls plus four sequential image calls typically take well under a minute; the UI shows status text throughout ("Generating hero photo...", etc.) so this reads as progress, not a hang.
 - **Portability:** the embedded component is plain HTML/CSS/JS with no build step, so it renders identically regardless of host OS.
 
 ## 5. Deployment
@@ -59,9 +69,10 @@ APPLICANT_CREDIT = "Built by Dibyajyoti Sarkar with Claude Code"  # placeholder 
 
 ```
 Property Post Maker/
-  app.py                   # Streamlit form + orchestration
+  app.py                   # Streamlit shell: loads .env, injects config, renders the component
   generator_template.py    # logo base64 helper + embedded HTML/JS component (chat, AI calls, canvas render)
   branding.py               # branding constants (placeholders for manager name / phone)
+  .env                       # GROQ_API_KEY, GROQ_MODEL - gitignored, never committed
   requirements.txt          # streamlit
   logo.png                  # Merlin logo
   template.png               # visual reference used to design the poster layout
@@ -75,4 +86,8 @@ Property Post Maker/
 
 ## 7. Explicitly Not Used
 
-To satisfy "no paid services": no OpenAI/Anthropic/Google API keys of our own (Puter.js's free User-Pays model is used instead), no paid stock-photo/icon APIs, no paid font licenses (system sans-serif fonts via canvas), no paid hosting tier, no paid domain.
+To satisfy "no paid services": no paid OpenAI/Anthropic/Google API keys (Groq's free tier and Puter's free User-Pays model are used instead), no paid stock-photo/icon APIs, no paid font licenses (system sans-serif fonts via canvas), no paid hosting tier, no paid domain. Groq's key is a free-tier key with no billing method attached to the account.
+
+## 8. Deployment Note: Secrets
+
+`.env` is local-only (gitignored). When deploying to Streamlit Community Cloud, set `GROQ_API_KEY` (and optionally `GROQ_MODEL`) via the app's "Secrets" panel in the Streamlit Cloud dashboard. `app.py`'s `_secret()` helper checks `st.secrets` first, falling back to `os.environ` (populated from `.env` locally) — covers both Streamlit Cloud's secrets.toml mechanism and local dev without a code change between them.

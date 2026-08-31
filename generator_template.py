@@ -55,22 +55,9 @@ _TEMPLATE = r"""
     align-items: center; justify-content: center; border-radius: 50%; background: rgba(20,20,22,.85);
     color: white; text-decoration: none; font-size: 16px; opacity: 0; transition: opacity .15s; }
   .poster-wrap:hover #downloadBtn { opacity: 1; }
-  #authBar { position: absolute; top: 64px; right: 16px; display: flex; align-items: center; gap: 8px; z-index: 20; }
-  #authBtn { padding: 8px 16px; border-radius: 20px; border: 1px solid var(--border);
-    background: var(--panel); color: var(--fg); font-size: 13px; font-weight: 600; cursor: pointer; box-shadow: 0 4px 14px rgba(0,0,0,.3); flex: none; }
-  #authBtn:hover { filter: brightness(1.15); }
-  #authBtn:disabled { opacity: .6; cursor: default; }
-  #authError { position: absolute; top: 108px; right: 16px; max-width: 220px; font-size: 12px; color: #ff8080;
-    text-align: right; z-index: 20; display: none; }
-  #themeToggle { width: 36px; height: 36px; border-radius: 50%; flex: none;
+  #themeToggle { position: absolute; top: 64px; right: 16px; width: 36px; height: 36px; border-radius: 50%; z-index: 20;
     border: 1px solid var(--border); background: var(--panel); color: var(--fg); font-size: 15px; cursor: pointer; }
   #themeToggle:hover { filter: brightness(1.15); }
-  #authNudge { position: absolute; top: 108px; right: 16px; width: 220px; background: var(--panel); border: 1px solid var(--border);
-    border-radius: 14px; padding: 14px 16px; box-shadow: 0 8px 24px rgba(0,0,0,.4); z-index: 19; display: none; }
-  #authNudge.show { display: block; }
-  #authNudge p { margin: 0 0 10px; font-size: 13px; color: var(--muted); line-height: 1.4; }
-  #authNudge button { width: 100%; padding: 9px 0; border: none; border-radius: 8px; background: #5b8cff; color: white; font-size: 13px; font-weight: 600; cursor: pointer; }
-  #authNudgeClose { position: absolute; top: 6px; right: 9px; width: auto !important; padding: 0 !important; background: none !important; color: var(--muted); cursor: pointer; font-size: 14px; line-height: 1; }
   #lightboxOverlay { position: absolute; inset: 0; background: rgba(0,0,0,.8); display: none; align-items: center; justify-content: center; z-index: 30; }
   #lightboxOverlay.open { display: flex; }
   #lightboxCard { position: relative; max-width: min(560px, 90%); max-height: 90%; }
@@ -92,16 +79,7 @@ _TEMPLATE = r"""
   #modalCancel { background: #33333a; color: #ddd; }
 </style>
 <div id="app">
-  <div id="authBar">
-    <button id="themeToggle" title="Toggle theme">&#127769;</button>
-    <button id="authBtn">Login with Puter</button>
-  </div>
-  <div id="authError"></div>
-  <div id="authNudge">
-    <button id="authNudgeClose">&times;</button>
-    <p>Sign in with your free Puter account to generate AI images.</p>
-    <button id="authNudgeBtn">Login with Puter</button>
-  </div>
+  <button id="themeToggle" title="Toggle theme">&#127769;</button>
   <div id="topbar">Property Post Maker</div>
   <div id="log" class="empty">
     <div id="greeting">Describe the property you want to advertise</div>
@@ -134,6 +112,7 @@ _TEMPLATE = r"""
 <script src="https://js.puter.com/v2/"></script>
 <script>
 const BRAND = __BRAND_JSON__;
+const GROQ = __GROQ_JSON__;
 const DEFAULT_LOGO = __LOGO_DATA_URI__;
 let customLogoDataUri = null;
 
@@ -176,41 +155,6 @@ function fitFrame() {
 fitFrame();
 window.addEventListener('resize', fitFrame);
 try { window.parent.addEventListener('resize', fitFrame); } catch (e) {}
-
-const authBtn = document.getElementById('authBtn');
-const authError = document.getElementById('authError');
-const authNudge = document.getElementById('authNudge');
-let authNudgeDismissed = false;
-
-function refreshAuthBtn() {
-  let signedIn = false;
-  try { signedIn = puter.auth.isSignedIn(); } catch (e) {}
-  authBtn.textContent = signedIn ? 'Logout' : 'Login with Puter';
-  authBtn.dataset.mode = signedIn ? 'out' : 'in';
-  authNudge.classList.toggle('show', !signedIn && !authNudgeDismissed);
-}
-
-async function doAuth() {
-  authBtn.disabled = true;
-  authError.style.display = 'none';
-  try {
-    if (authBtn.dataset.mode === 'out') { await puter.auth.signOut(); }
-    else { await puter.auth.signIn(); }
-  } catch (e) {
-    authError.textContent = (authBtn.dataset.mode === 'out' ? 'Sign out failed: ' : 'Sign in failed: ') +
-      (e && e.message ? e.message : 'popup may have been blocked - allow popups for this site and try again.');
-    authError.style.display = 'block';
-  }
-  authBtn.disabled = false;
-  refreshAuthBtn();
-}
-authBtn.addEventListener('click', doAuth);
-document.getElementById('authNudgeBtn').addEventListener('click', doAuth);
-document.getElementById('authNudgeClose').addEventListener('click', () => {
-  authNudgeDismissed = true;
-  authNudge.classList.remove('show');
-});
-refreshAuthBtn();
 
 const themeToggle = document.getElementById('themeToggle');
 function applyTheme(theme) {
@@ -301,9 +245,26 @@ function stripFences(s) {
   return s.replace(/```json/gi, '').replace(/```/g, '').trim();
 }
 
+// Text runs on Groq (openai/gpt-oss-120b), not Puter: Puter's anonymous chat
+// quota runs out with regular use same as its image credits did, and
+// Pollinations' text API blocks programmatic calls (Cloudflare bot-check).
+// Groq's free tier needs a real API key with no per-user login, and its API
+// allows direct browser CORS calls - confirmed by testing directly.
 async function askJSON(prompt) {
-  const raw = await puter.ai.chat(prompt);
-  const text = (typeof raw === 'string') ? raw : (raw && raw.message && raw.message.content) || String(raw);
+  let text;
+  try {
+    const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + GROQ.api_key },
+      body: JSON.stringify({ model: GROQ.model, messages: [{ role: 'user', content: prompt }] }),
+    });
+    if (!r.ok) return null;
+    const j = await r.json();
+    text = j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content;
+  } catch (e) {
+    return null;
+  }
+  if (!text) return null;
   try {
     return JSON.parse(stripFences(text));
   } catch (e) {
@@ -463,43 +424,26 @@ let lastImages = null; // { hero, t1, t2, t3 } loaded <img> elements, keyed to l
 const PLAN_SHAPE = '{"badge_text":"LUXURY CORNER VILLA FOR SALE","headline":"short punchy headline, 3-5 words","price_line":"STARTING FROM","price_value":"the price as given","spec_line":"short spec summary e.g. 4 BHK | 2 STORIES | STREET NAME","about_paragraph":"2-3 sentence description using the highlights","benefits":[{"title":"RESORT AMENITIES","desc":"short real description"},{"title":"HOST & CELEBRATE","desc":"short real description"},{"title":"PRIME LOCATION","desc":"short real description"}],' +
   '"hero_prompt":"a photorealistic real estate exterior photo prompt for an AI image generator, incorporating the property description, THEME lighting, and a subtle COLOR accent, no text or logos in the image","thumb_prompts":["photorealistic interior/amenity photo prompt 1 derived from the highlights, THEME lighting, no text","photorealistic interior/amenity photo prompt 2, no text","photorealistic interior/amenity photo prompt 3, no text"]}';
 
-// Puter's txt2img billed against the signed-in account's free credit allotment,
-// which runs out with regular use. Pollinations.ai's Flux endpoint is free,
-// unlimited, and needs no login/API key/credits at all - switched the image
-// pipeline to it entirely. Puter (puter.ai.chat) still handles the text/planning
-// calls, which are far cheaper and weren't the reported problem.
-//
-// Pollinations' image host 200s a normal <img> embed but 403s any CORS-mode
-// request (img crossorigin, plain fetch) needed to read pixels onto a canvas -
-// confirmed by testing both directly. Routing the fetch through puter.net.fetch
-// (a free CORS-bypass relay, unrelated to the AI-generation credit pool) gets
-// real bytes back, which are then loaded from a same-origin blob: URL so the
-// canvas is never tainted and toDataURL() works.
-function pollinationsUrl(prompt, w, h) {
-  const seed = Math.floor(Math.random() * 1e9);
-  return 'https://image.pollinations.ai/prompt/' + encodeURIComponent(prompt) +
-    '?width=' + w + '&height=' + h + '&model=flux&nologo=true&seed=' + seed;
-}
+// Tried moving images to Pollinations.ai (free/unlimited/no-login) via
+// puter.net.fetch as a CORS-bypass relay (Pollinations 403s any programmatic
+// fetch directly, only allows plain <img> embeds). It worked once, then
+// puter.net.fetch itself started hanging indefinitely session-wide - confirmed
+// with a fresh tab, a trivial unrelated URL, still hung. Public CORS proxies
+// tried as a fallback (allorigins, corsproxy.io) were equally unreliable
+// (timeout / 401 needing a key). Reverted to puter.ai.txt2img: metered by
+// Puter's per-account credit allotment, but the only option that's actually
+// been reliable end-to-end. Text still runs on Groq (see askJSON above),
+// which has no such ceiling.
+const IMG_MODEL = { model: 'gpt-image-1' };
 
-async function fetchPollinationsImg(url) {
-  const resp = await puter.net.fetch(url);
-  if (!resp.ok) return null;
-  const blob = await resp.blob();
-  const img = await loadImgEl(URL.createObjectURL(blob));
-  return img.naturalWidth ? img : null;
-}
-
-async function genImage(prompt, label, setCaption, w, h) {
+async function genImage(prompt, label, setCaption) {
   setCaption(label);
-  const url = pollinationsUrl(prompt, w, h);
-  let img = null;
-  try { img = await fetchPollinationsImg(url); } catch (e) { /* retry below */ }
-  if (!img) {
-    await new Promise((r) => setTimeout(r, 3000));
-    try { img = await fetchPollinationsImg(pollinationsUrl(prompt, w, h)); } catch (e) { /* fall through */ }
+  try {
+    return await puter.ai.txt2img(prompt, IMG_MODEL);
+  } catch (e) {
+    await new Promise((r) => setTimeout(r, 2000));
+    return await puter.ai.txt2img(prompt, IMG_MODEL);
   }
-  if (!img) throw new Error('Photo generation failed (image service unavailable)');
-  return img;
 }
 
 // Regenerates only the photos whose prompt actually changed vs. the previous plan
@@ -507,13 +451,13 @@ async function genImage(prompt, label, setCaption, w, h) {
 // prevPlan/prevImages null forces generating all four, as on the first pass.
 async function getImagesForPlan(plan, prevPlan, prevImages, setCaption) {
   const slots = [
-    ['hero', plan.hero_prompt, 'Generating hero photo...', 900, 700],
-    ['t1', plan.thumb_prompts[0], 'Generating photo 1 of 3...', 700, 700],
-    ['t2', plan.thumb_prompts[1], 'Generating photo 2 of 3...', 700, 700],
-    ['t3', plan.thumb_prompts[2], 'Generating photo 3 of 3...', 700, 700],
+    ['hero', plan.hero_prompt, 'Generating hero photo...'],
+    ['t1', plan.thumb_prompts[0], 'Generating photo 1 of 3...'],
+    ['t2', plan.thumb_prompts[1], 'Generating photo 2 of 3...'],
+    ['t3', plan.thumb_prompts[2], 'Generating photo 3 of 3...'],
   ];
   const result = {};
-  for (const [key, prompt, label, w, h] of slots) {
+  for (const [key, prompt, label] of slots) {
     const prevPrompt = prevPlan && key === 'hero' ? prevPlan.hero_prompt
       : prevPlan && key === 't1' ? prevPlan.thumb_prompts[0]
       : prevPlan && key === 't2' ? prevPlan.thumb_prompts[1]
@@ -522,8 +466,8 @@ async function getImagesForPlan(plan, prevPlan, prevImages, setCaption) {
     if (prevPlan && prevImages && prevPrompt === prompt) {
       result[key] = prevImages[key];
     } else {
-      // sequential, not parallel: anonymous Pollinations requests are rate-limited to ~1 per 15s
-      result[key] = await genImage(prompt, label, setCaption, w, h);
+      // sequential, not parallel: the free image backend throttles concurrent requests
+      result[key] = await genImage(prompt, label, setCaption);
     }
   }
   return result;
@@ -588,7 +532,8 @@ async function generatePost() {
   } catch (err) {
     captionRow.remove();
     shimmerRow.remove();
-    addBubble('Something went wrong generating your post: ' + err.message + '. Please reload and try again.', 'bot');
+    const detail = (err && err.message) || (err && err.error) || (typeof err === 'string' ? err : JSON.stringify(err)) || 'unknown error';
+    addBubble('Something went wrong generating your post: ' + detail + '. Please reload and try again.', 'bot');
   }
 }
 
@@ -622,7 +567,8 @@ async function handleRefinement(text) {
     lastImages = images;
   } catch (err) {
     status.remove();
-    addBubble('Could not apply that change: ' + err.message + '. Try describing it differently.', 'bot');
+    const detail = (err && err.message) || (err && err.error) || (typeof err === 'string' ? err : JSON.stringify(err)) || 'unknown error';
+    addBubble('Could not apply that change: ' + detail + '. Try describing it differently.', 'bot');
   }
 }
 
@@ -749,7 +695,11 @@ def build_component_html(branding: dict) -> str:
         }
     )
     logo_data_uri = _safe_json(branding["logo_data_uri"])
+    groq_json = _safe_json(
+        {"api_key": branding["groq_api_key"], "model": branding["groq_model"]}
+    )
     out = _TEMPLATE
     out = out.replace("__BRAND_JSON__", branding_json)
     out = out.replace("__LOGO_DATA_URI__", logo_data_uri)
+    out = out.replace("__GROQ_JSON__", groq_json)
     return out
