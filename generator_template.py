@@ -23,7 +23,12 @@ _TEMPLATE = r"""
   html, body { margin: 0; height: 100%; background: #0d0d0f; }
   #app { position: relative; display: flex; flex-direction: column; height: 100%; width: 100%; background: var(--bg); color: var(--fg); }
   #topbar { flex: none; padding: 16px 28px; border-bottom: 1px solid var(--border); font-size: 15px; font-weight: 600; }
-  #log { flex: 1; overflow-y: auto; padding: 24px clamp(16px, 8vw, 220px); display: flex; flex-direction: column; }
+  #log { flex: 1; overflow-y: auto; padding: 24px clamp(16px, 8vw, 220px); display: flex; flex-direction: column;
+    scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+  #log::-webkit-scrollbar { width: 10px; }
+  #log::-webkit-scrollbar-track { background: transparent; }
+  #log::-webkit-scrollbar-thumb { background: var(--border); border-radius: 6px; border: 2px solid var(--bg); }
+  #log::-webkit-scrollbar-thumb:hover { background: var(--muted); }
   #log.empty { justify-content: center; }
   #greeting { text-align: center; font-size: 26px; font-weight: 600; color: var(--greeting); }
   #promptSuggestion { margin: 18px auto 0; max-width: 460px; padding: 12px 16px; border: 1px solid var(--border);
