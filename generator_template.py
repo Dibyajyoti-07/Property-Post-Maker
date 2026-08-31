@@ -17,7 +17,7 @@ _TEMPLATE = r"""
 <style>
   * { box-sizing: border-box; font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
   html, body { margin: 0; height: 100%; background: #0d0d0f; }
-  #app { display: flex; flex-direction: column; height: 100%; width: 100%; background: #0d0d0f; color: #e8e8ea; }
+  #app { position: relative; display: flex; flex-direction: column; height: 100%; width: 100%; background: #0d0d0f; color: #e8e8ea; }
   #topbar { flex: none; padding: 16px 28px; border-bottom: 1px solid #1c1c1f; font-size: 15px; font-weight: 600; color: #eee; }
   #log { flex: 1; overflow-y: auto; padding: 24px clamp(16px, 8vw, 220px); display: flex; flex-direction: column; }
   #log.empty { justify-content: center; }
@@ -36,12 +36,21 @@ _TEMPLATE = r"""
   .status-line { display: flex; align-items: center; gap: 8px; color: #a8a8ae; font-size: 14px; margin: 4px 0 10px 4px; }
   .spark { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #7c8cff; animation: pulse 1s ease-in-out infinite; }
   @keyframes pulse { 0%,100% { opacity: .3; transform: scale(.8);} 50% { opacity: 1; transform: scale(1.1);} }
-  .shimmer-box { width: 100%; max-width: 420px; aspect-ratio: 1080 / 1527; border-radius: 16px;
+  .shimmer-box { width: 100%; max-width: 260px; aspect-ratio: 1080 / 1527; border-radius: 16px;
     background: linear-gradient(110deg, #19191c 8%, #29292f 18%, #19191c 33%); background-size: 250% 100%;
     animation: shimmer 1.4s linear infinite; }
   @keyframes shimmer { to { background-position-x: -250%; } }
-  .poster-wrap img { max-width: 100%; border-radius: 12px; display: block; }
-  #downloadBtn { display: inline-block; margin-top: 10px; padding: 9px 18px; background: #16a34a; color: white; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 14px; }
+  .poster-wrap { position: relative; display: inline-block; max-width: 260px; }
+  .poster-wrap img { width: 100%; border-radius: 12px; display: block; }
+  .poster-wrap #downloadBtn { position: absolute; top: 8px; right: 8px; width: 34px; height: 34px; display: flex;
+    align-items: center; justify-content: center; border-radius: 50%; background: rgba(20,20,22,.85);
+    color: white; text-decoration: none; font-size: 16px; opacity: 0; transition: opacity .15s; }
+  .poster-wrap:hover #downloadBtn { opacity: 1; }
+  #loginCard { position: absolute; top: 16px; right: 16px; width: 220px; background: #16161a; border: 1px solid #2c2c30;
+    border-radius: 14px; padding: 14px 16px; box-shadow: 0 8px 24px rgba(0,0,0,.4); z-index: 20; }
+  #loginCard p { margin: 0 0 10px; font-size: 13px; color: #ccc; line-height: 1.4; }
+  #loginBtn { width: 100%; padding: 9px 0; border: none; border-radius: 8px; background: #5b8cff; color: white; font-size: 13px; font-weight: 600; cursor: pointer; }
+  #loginClose { position: absolute; top: 6px; right: 9px; background: none; border: none; color: #777; cursor: pointer; font-size: 14px; line-height: 1; }
   #modalOverlay { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: none; align-items: center; justify-content: center; z-index: 10; }
   #modalOverlay.open { display: flex; }
   #modalCard { background: #1a1a1d; border: 1px solid #333; border-radius: 14px; padding: 22px; width: 320px; color: #eee; }
@@ -54,6 +63,11 @@ _TEMPLATE = r"""
   #modalCancel { background: #33333a; color: #ddd; }
 </style>
 <div id="app">
+  <div id="loginCard">
+    <button id="loginClose">&times;</button>
+    <p>Sign in with your free Puter account to generate AI images.</p>
+    <button id="loginBtn">Login with Puter</button>
+  </div>
   <div id="topbar">Property Post Maker</div>
   <div id="log" class="empty"><div id="greeting">Describe the property you want to advertise</div></div>
   <div id="modalOverlay">
@@ -92,6 +106,31 @@ let collectedText = '';
 let fields = { property_type: null, location: null, price: null, highlights: null };
 let resolvedTheme = null;
 let resolvedColor = null;
+
+// Size this iframe to the actual visible viewport instead of a fixed Python-side
+// height, so the page never scrolls regardless of screen size/zoom.
+function fitFrame() {
+  try {
+    const fe = window.frameElement;
+    if (!fe) return;
+    const top = fe.getBoundingClientRect().top;
+    fe.style.height = Math.max(480, window.parent.innerHeight - top) + 'px';
+  } catch (e) { /* cross-origin fallback: keep Python-supplied height */ }
+}
+fitFrame();
+window.addEventListener('resize', fitFrame);
+try { window.parent.addEventListener('resize', fitFrame); } catch (e) {}
+
+const loginCard = document.getElementById('loginCard');
+function refreshLoginCard() {
+  try { if (puter.auth.isSignedIn()) loginCard.style.display = 'none'; } catch (e) {}
+}
+document.getElementById('loginClose').addEventListener('click', () => { loginCard.style.display = 'none'; });
+document.getElementById('loginBtn').addEventListener('click', async () => {
+  try { await puter.auth.signIn(); } catch (e) {}
+  refreshLoginCard();
+});
+refreshLoginCard();
 
 function scrollBottom() { logEl.scrollTop = logEl.scrollHeight; }
 
@@ -377,7 +416,8 @@ async function generatePost() {
     a.id = 'downloadBtn';
     a.href = dataUrl;
     a.download = (fields.property_type || 'property-post').replace(/[^a-z0-9]+/gi, '-').toLowerCase() + '.png';
-    a.textContent = 'Download Post';
+    a.title = 'Download';
+    a.innerHTML = '&#8681;';
     wrap.appendChild(a);
     row.appendChild(wrap);
     logEl.appendChild(row);
