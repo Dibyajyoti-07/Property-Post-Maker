@@ -17,18 +17,21 @@ _TEMPLATE = r"""
 <style>
   * { box-sizing: border-box; font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
   html, body { margin: 0; height: 100%; background: #0d0d0f; }
-  #app { display: flex; flex-direction: column; height: 860px; max-width: 720px; margin: 0 auto; background: #0d0d0f; color: #e8e8ea; }
-  #log { flex: 1; overflow-y: auto; padding: 20px 16px 8px; }
+  #app { display: flex; flex-direction: column; height: 100%; width: 100%; background: #0d0d0f; color: #e8e8ea; }
+  #topbar { flex: none; padding: 16px 28px; border-bottom: 1px solid #1c1c1f; font-size: 15px; font-weight: 600; color: #eee; }
+  #log { flex: 1; overflow-y: auto; padding: 24px clamp(16px, 8vw, 220px); display: flex; flex-direction: column; }
+  #log.empty { justify-content: center; }
+  #greeting { text-align: center; font-size: 26px; font-weight: 600; color: #f2f2f4; }
   .row { display: flex; margin: 10px 0; }
   .row.user { justify-content: flex-end; }
   .bubble { padding: 10px 16px; border-radius: 16px; max-width: 78%; line-height: 1.45; white-space: pre-wrap; }
   .row.user .bubble { background: #2a2a30; color: #f0f0f2; border-bottom-right-radius: 4px; }
   .row.bot .bubble { background: transparent; color: #d8d8dc; padding-left: 4px; max-width: 92%; }
-  #composer { display: flex; align-items: center; gap: 8px; padding: 14px 16px; border-top: 1px solid #232326; }
+  #composer { display: flex; align-items: center; gap: 10px; padding: 16px clamp(16px, 8vw, 220px) 22px; flex: none; }
   #plusBtn { width: 40px; height: 40px; border-radius: 50%; border: 1px solid #3a3a40; background: #1a1a1d; color: #ddd; font-size: 20px; cursor: pointer; flex: none; }
   #plusBtn:hover { background: #232327; }
-  #userInput { flex: 1; padding: 12px 16px; border-radius: 22px; border: 1px solid #3a3a40; background: #1a1a1d; color: #f0f0f0; font-size: 15px; outline: none; }
-  #sendBtn { width: 40px; height: 40px; border-radius: 50%; border: none; background: #5b8cff; color: white; cursor: pointer; flex: none; font-size: 16px; }
+  #userInput { flex: 1; padding: 14px 18px; border-radius: 26px; border: 1px solid #2c2c30; background: #16161a; color: #f0f0f0; font-size: 15px; outline: none; }
+  #sendBtn { width: 42px; height: 42px; border-radius: 50%; border: none; background: #5b8cff; color: white; cursor: pointer; flex: none; font-size: 16px; }
   #sendBtn:disabled { background: #33384a; cursor: not-allowed; }
   .status-line { display: flex; align-items: center; gap: 8px; color: #a8a8ae; font-size: 14px; margin: 4px 0 10px 4px; }
   .spark { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #7c8cff; animation: pulse 1s ease-in-out infinite; }
@@ -51,7 +54,8 @@ _TEMPLATE = r"""
   #modalCancel { background: #33333a; color: #ddd; }
 </style>
 <div id="app">
-  <div id="log"></div>
+  <div id="topbar">Property Post Maker</div>
+  <div id="log" class="empty"><div id="greeting">Describe the property you want to advertise</div></div>
   <div id="modalOverlay">
     <div id="modalCard">
       <h3>Custom logo</h3>
@@ -91,7 +95,15 @@ let resolvedColor = null;
 
 function scrollBottom() { logEl.scrollTop = logEl.scrollHeight; }
 
+function clearGreeting() {
+  if (logEl.classList.contains('empty')) {
+    logEl.classList.remove('empty');
+    logEl.innerHTML = '';
+  }
+}
+
 function addBubble(text, who) {
+  clearGreeting();
   const row = document.createElement('div');
   row.className = 'row ' + who;
   const b = document.createElement('div');
@@ -161,8 +173,6 @@ async function askJSON(prompt) {
     return null;
   }
 }
-
-addBubble('Describe the property you want to advertise — type, location, price, highlights, all in one go or however you like.', 'bot');
 
 sendBtn.addEventListener('click', handleSend);
 inputEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') handleSend(); });
