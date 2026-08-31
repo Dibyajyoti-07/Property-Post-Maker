@@ -1,47 +1,43 @@
 # Implementation Plan — Property Post Maker
 
-This plan sequences the build described in the PRD and TRD against the assignment's 24-hour deadline. Steps 1–8 need no external input and can run back-to-back in one session. Steps 9–10 need real branding assets and the applicant's display name from the user — everything is designed so that gap doesn't block getting a live, demoable link first.
+This plan sequences the Puter.js-based build against the assignment's 24-hour deadline. It supersedes an earlier Pillow/static-card plan, abandoned once the brief was clarified to require AI-generated photography and a free-text theme/color chat step matching a specific visual reference (`template.png`).
 
-## Phase 1 — Scaffold (no blocking input)
+## Phase 1 — Scaffold ✅ done
 
-1. **Repo scaffold.** Create the file/folder layout from the TRD: `app.py`, `card_generator.py`, `branding.py`, `requirements.txt`, `assets/fonts/`, `assets/logo.png` (placeholder), `tests/`. Initialize a git repo in the project directory.
-2. **Branding config with placeholders.** Write `branding.py` with clearly-labeled placeholder constants (company name, manager name, phone, address, logo path, applicant credit placeholder) so every later step has something concrete to render against.
-3. **Fonts.** Download or generate two OFL-licensed `.ttf` files (bold + regular weight of one family, e.g. Poppins) into `assets/fonts/`, committed to the repo.
+1. `branding.py` — company name, address (real), manager name/phone (placeholders), logo path, applicant credit (inferred placeholder name).
+2. `logo.png` in repo root (Merlin logo, supplied by user).
+3. `requirements.txt` — `streamlit` only; no Pillow needed for the live path.
 
-## Phase 2 — Core image logic (no blocking input)
+## Phase 2 — Component + form ✅ done
 
-4. **`card_generator.py`.** Implement `generate_post(property_type, location, price, highlights)`:
-   - fixed 1080×1080 canvas + background fill,
-   - headline + location text drawing with wrapping and auto-shrink-to-fit,
-   - price zone,
-   - highlights row (split on `·`/`,`/`|`, wrap into a compact block),
-   - logo paste into a fixed top brand strip (reads `branding.LOGO_PATH`),
-   - fixed bottom contact strip using `branding.py` constants,
-   - return PNG bytes via in-memory buffer (no disk writes).
-5. Sanity-check the function directly (a throwaway script or Python REPL call) with the assignment's own example values (villa/location/price/highlights from the brief) before wiring up the UI, so any layout issues are caught before the UI is built on top of it.
+4. `generator_template.py` — `encode_logo()` (base64-inlines the logo, since the embedded component runs in a sandboxed `srcdoc` iframe with no file-path access) and `build_component_html()` (builds the full embedded chat + AI + canvas HTML/JS, with `_safe_json` escaping `</script>` in user text before interpolation).
+5. `app.py` — 4-field Streamlit form with required validation, then `st.components.v1.html(...)` renders the component on submit.
 
-## Phase 3 — UI wiring (no blocking input)
+## Phase 3 — Local QA and debugging ✅ done
 
-6. **`app.py`.** Build the Streamlit form: four inputs, submit button, required-field validation with inline errors, call into `card_generator.generate_post`, `st.image` preview, `st.download_button` for the PNG, and a small always-visible footer line for the applicant credit (placeholder text until the real name is supplied).
-7. **Local run + manual QA.** `streamlit run app.py` locally; walk through the manual test cases in `TESTCASES.md` (empty fields, long text, ₹ symbol, emoji, typical example) and fix any layout issues found.
+6. Ran the full flow in a real browser (via claude-in-chrome) with the assignment's own villa example. Found and fixed three real bugs along the way, each confirmed against actual API responses (network requests inspected), not guessed:
+   - Puter's default `txt2img` model errors ("Missing `model`") — fixed by passing an explicit `{model: 'gpt-image-1'}`.
+   - Firing all 4 image calls in parallel (`Promise.all`) hit "Too many concurrent requests" on the free tier — fixed by running them sequentially with per-call status text.
+   - The content-planning prompt's JSON example used a literal `"..."` placeholder for `badge_text`, which the model echoed back verbatim instead of substituting real content — fixed by giving a concrete, non-ellipsis example value.
+   - A Python module-caching gotcha: editing `generator_template.py` had no effect on a running `streamlit run` process because `app.py`'s top-level `import` only re-resolves at process start, not on Streamlit's file-watcher rerun — fixed by restarting the server after each code change during testing.
+7. Confirmed after the fixes: theme/color chat resolves correctly (including the re-ask path on an ambiguous first pass, tested separately), all 4 photos generate, final poster is 1080×1527 valid PNG, download link has a sensible filename, layout matches `template.png`'s structure (badge strip + logo, hero + colored info panel, 3 overview thumbnails, About paragraph, 3 benefit tiles, contact block, credit line).
 
-## Phase 4 — Automated tests
+## Phase 4 — Automated tests — not yet done
 
-8. **`tests/test_card_generator.py`.** Pytest cases covering: output image has the expected 1080×1080 size and PNG-decodable bytes for a normal input; the function does not raise for edge-case inputs (very long highlights string, empty-ish but non-empty single character, unicode/₹/emoji). Run the suite and confirm it's green before deploying.
+8. No `tests/` directory exists yet. Given the generation logic is entirely client-side JS with no Python unit under test, the practical equivalent is the browser-driven manual pass already completed in Phase 3; a formal automated test suite (e.g. Playwright driving the Streamlit page) is future work, not required for this assignment's deliverables.
 
-## Phase 5 — Deploy (no blocking input)
+## Phase 5 — Docs ✅ done
 
-9. **GitHub.** Create a public GitHub repository, push the committed code (placeholders included — nothing here is secret, so it's safe to commit and push as-is).
-10. **Streamlit Community Cloud.** Connect the GitHub repo at share.streamlit.io, set `app.py` as the entry point, deploy. Confirm the live `*.streamlit.app` URL loads and a full generate → preview → download cycle works end to end on the deployed instance (not just locally).
+9. `docs/PRD.md`, `docs/TRD.md`, `docs/TESTCASES.md`, and this file rewritten to describe the actual Puter.js/chat/canvas architecture in place of the superseded Pillow-card plan.
 
-## Phase 6 — Real branding + deliverables (blocked on user input)
+## Phase 6 — Deploy — pending user action
 
-11. **Swap real branding.** Once the user supplies manager name, phone/WhatsApp, logo file, builder/company name, office address, and their own display name for the applicant credit: update `branding.py` and replace `assets/logo.png`, commit, push — Streamlit Community Cloud auto-redeploys on push, so this is a single fast iteration, not a rebuild.
-12. **Sample post.** Generate and save the one required sample post from the live deployed tool (not a local-only run), using realistic example values (e.g. the brief's own villa example or a real listing the user provides).
-13. **1-minute build recording.** Record a concise walkthrough of building this with Claude Code, per the assignment's requirement.
-14. **Final submission check.** Confirm all four deliverables are ready together: live link, one sample post image, the recording, and the applicant's name visibly present in the running tool.
+10. **Git commit + push** to the existing `origin/main` (`github.com/Dibyajyoti-07/Property-Post-Maker.git`) — done as part of this session once the working tree is verified clean of anything unintended.
+11. **Streamlit Community Cloud connection** — this step requires the account owner's own browser session (OAuth sign-in to share.streamlit.io, connecting the GitHub repo) and cannot be done by an agent on the user's behalf. Once connected with `app.py` as the entry point, every push to `main` auto-redeploys.
 
-## Rough time budget (24h window)
+## Phase 7 — Remaining blockers before final submission
 
-- Phases 1–5 (scaffold through live deploy, placeholder branding): the bulk of engineering time, targeted for the first working session — this alone produces a live, fully functional link.
-- Phase 6: fast once real assets arrive (single config/asset swap + redeploy), but is entirely gated on the user providing those assets — flagging this early so it isn't the thing that runs the clock down near the deadline.
+12. **Real branding values.** `MANAGER_NAME` and `PHONE` in `branding.py` are still placeholders — swap in the real manager name and phone/WhatsApp number, commit, push (single-line edit, auto-redeploys).
+13. **Applicant credit name.** Currently inferred as "Dibyajyoti Sarkar" from the project owner's email — confirm this is correct.
+14. **Sample post.** Once live, generate one sample post from the actual deployed URL (not just localhost) and save it as the assignment's required sample.
+15. **1-minute build recording** and the final reply (live link + sample post + recording + name-in-tool) are on the user to complete outside this codebase.

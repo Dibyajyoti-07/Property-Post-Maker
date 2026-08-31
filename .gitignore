@@ -37,3 +37,6 @@ Thumbs.db
 # Scratch / generated output (not repo deliverables)
 *.tmp
 output/
+myenv/
+
+myenv/*

@@ -2,81 +2,70 @@
 
 ## 1. Technology Stack
 
-- **Language:** Python 3.
-- **UI framework:** Streamlit — chosen because it turns a plain Python script into a hosted web form with zero frontend code, and it deploys for free on Streamlit Community Cloud, matching the "no paid services" constraint.
-- **Image generation:** Pillow (PIL fork) — pure-Python image compositing (draw text, paste logo, fill shapes). No paid image-generation API (no OpenAI images, no DALL·E, no cloud design API) is used or needed; the post is built deterministically from a fixed layout template plus the four user-entered strings.
-- **Fonts:** a small set of open-license (SIL Open Font License) Google Fonts `.ttf` files (e.g. Poppins/Montserrat family — one bold weight for the headline, one regular weight for body text) bundled inside the repo under `assets/fonts/`. Bundling avoids depending on system fonts being present on the Streamlit Cloud host, which cannot be assumed.
-- **No backend, no database.** The app is fully stateless: each generation is a pure function of the four form inputs plus the fixed branding config. Nothing is persisted server-side between users or sessions.
-- **No secrets required.** Branding data (company name, manager name, phone, address) is intentionally public-facing information meant to appear on every post, so it lives in a plain committed config file, not in Streamlit secrets or environment variables.
+- **Language / shell:** Python 3 + Streamlit — renders the 4-field form and hosts the page. No Python image library is used for the live generation path.
+- **AI + image generation:** **Puter.js** (`https://js.puter.com/v2/`), loaded client-side inside an embedded HTML/JS component. `puter.ai.chat()` handles the theme/color free-text resolution and the content-planning step (copy + image prompts); `puter.ai.txt2img()` generates the hero photo and three amenity thumbnails. Free under Puter's "User-Pays" model — no API keys, no backend, no cost to the app owner.
+- **Compositing:** the browser's HTML5 `<canvas>` API draws the final poster (badge strip, hero + info panel, thumbnails, copy, benefit tiles, contact block, logo) — no server-side image library needed.
+- **No backend, no database.** Generation happens entirely in the visitor's browser; the Streamlit process only serves the form and injects the four field values plus branding constants into the embedded component's HTML.
+- **No secrets required.** Branding data (company name, manager name, phone, address) is public-facing by design and lives in a plain committed `branding.py`.
 
 ## 2. Architecture
 
-Single-process, single-page Streamlit app. Request flow:
-
-1. `app.py` renders a form with the four fields described in the PRD (`st.text_input` / `st.text_area`), plus a "Generate Post" submit button.
-2. On submit, `app.py` validates that all four fields are non-empty (inline `st.error` per missing field; generation is blocked until all four are filled).
-3. `app.py` calls `card_generator.generate_post(property_type, location, price, highlights)`, passing the four validated strings.
-4. `card_generator.py` builds the image entirely in memory:
-   - opens/creates the fixed 1080×1080 canvas (flat background or a bundled background template image),
-   - draws the headline (Property & Type) and location using the bundled bold/regular fonts, with automatic text wrapping and a font-size step-down loop if the string is too long to fit its box at the default size,
-   - draws the price prominently in its own zone,
-   - draws the highlights row (splits on common delimiters — `·`, `,`, `|` — and lays them out as a compact row or wrapped block),
-   - pastes the logo image (from `branding.py`'s configured path) into the fixed top brand strip, keeping aspect ratio,
-   - draws the fixed bottom contact strip using the company name, manager name, phone/WhatsApp, and address constants from `branding.py`.
-   - returns the finished image as PNG bytes (via an in-memory `io.BytesIO` buffer — no temp files written to disk, so it works unmodified on Streamlit Cloud's ephemeral filesystem).
-5. `app.py` displays the returned PNG with `st.image` and offers it via `st.download_button` (`mime="image/png"`, filename derived from the property/location text).
-6. A small, always-visible footer in `app.py` (outside the generated image) shows the applicant's build credit, satisfying "your name in the tool."
+1. `app.py` renders the 4-field Streamlit form (`st.text_input` / `st.text_area`) with a submit button; validates all four are non-empty (inline `st.error` per missing field).
+2. On valid submit, `app.py` calls `generator_template.build_component_html(fields, branding_data)` — `branding_data` includes the Merlin logo read from disk and base64-inlined as a `data:image/png;base64,...` URI (`generator_template.encode_logo`), since the component runs in a sandboxed `srcdoc` iframe with no access to relative file paths.
+3. `app.py` renders the returned HTML via `st.components.v1.html(html, height=1700, scrolling=True)`.
+4. Inside the component: a chat-bubble UI asks "Day or Night theme?" — the user's free-text reply goes to `puter.ai.chat()` with an instruction to reply with strict JSON (`{"theme":"day"|"night"|"unclear"}`); an `"unclear"` result triggers one re-ask before defaulting.
+5. Same pattern for "What color scheme?" — resolved to `{"hex":"#RRGGBB","label":"...","resolved":true|false}`.
+6. A content-planning `puter.ai.chat()` call, given the four fields plus the resolved theme/color, returns strict JSON: badge text, headline, price/spec lines, an About paragraph, three benefit tiles, and four image prompts (hero + three thumbnails) that explicitly bake in the theme's lighting and the accent color.
+7. Four `puter.ai.txt2img()` calls generate the hero and three thumbnail photos, using the `gpt-image-1` model explicitly (Puter's default model and the Replicate-routed FLUX models were unreliable on the free tier during development — see code comment in `generator_template.py`). Calls run **sequentially**, not in parallel, because the free image backend throttles concurrent requests; each call gets one automatic retry on failure.
+8. The component draws everything onto a 1080×1527 `<canvas>`, computing a manual center-crop for each photo (canvas has no CSS `object-fit`), fills the accent-colored info panel and section rules with the resolved hex, and renders the contact block from the branding constants.
+9. `canvas.toBlob`/`toDataURL('image/png')` produces the final image; an in-component `<img>` preview and `<a download>` link are shown — no round-trip back to Python is needed for the download.
 
 ## 3. Branding Configuration
 
-All brand constants live in one file, `branding.py`, so real assets can be dropped in with a single edit and no logic changes:
+All brand constants live in `branding.py`:
 
 ```python
-COMPANY_NAME = "..."      # builder/company name
-MANAGER_NAME = "..."      # manager's name shown on the contact line
-PHONE = "..."             # phone / WhatsApp number
-ADDRESS = "..."           # builder's office address
-LOGO_PATH = "assets/logo.png"
-APPLICANT_CREDIT = "Built by ... for the MLH Claude Intern task"
+COMPANY_NAME = "Merlin"
+ADDRESS = "22, Prince Anwar Shah Road, 2nd Floor, Merlin Oxford, Kolkata - 700033"
+MANAGER_NAME = "Merlin Sales Team"  # placeholder - swap when supplied
+PHONE = "+91-XXXXXXXXXX"  # placeholder - swap when supplied
+LOGO_PATH = "logo.png"
+APPLICANT_CREDIT = "Built by Dibyajyoti Sarkar with Claude Code"  # placeholder name, confirm
 ```
 
-Until the user supplies the real logo file and contact details, this file ships with clearly-labeled placeholder values so the app is fully runnable and demoable end to end; swapping to real values is a same-file text/asset replacement with no code change elsewhere.
+`MANAGER_NAME` and `PHONE` are still placeholders pending real values; swapping is a one-line edit with no other code change.
 
 ## 4. Non-Functional Requirements
 
-- **Cost:** $0. Every dependency (Streamlit, Pillow, the bundled fonts) is free and open-source; hosting is Streamlit Community Cloud's free tier; no API keys, no metered services.
-- **Statelessness / concurrency safety:** because generation is a pure function of its inputs with no shared mutable state or disk writes, concurrent users on the same deployed instance cannot interfere with each other's output.
-- **Performance:** generation must complete well under 2 seconds for typical input lengths — pure in-memory Pillow drawing on a 1080×1080 canvas, no network calls, so this is not a practical concern.
-- **Portability:** must run identically on the developer's local machine (Windows) and on Streamlit Community Cloud's Linux containers — achieved by bundling fonts/assets in-repo (no reliance on OS-installed fonts) and using only cross-platform, pure-Python libraries.
+- **Cost:** $0. Puter.js AI usage is free under the User-Pays model; hosting is Streamlit Community Cloud's free tier; no API keys, no metered services.
+- **First-run auth:** a visitor's first AI call may prompt a one-time Puter sign-in popup (free account) — this is expected behavior, not an error.
+- **Latency:** generation is not instant — two chat calls plus a planning call plus four sequential image calls typically take well under a minute but noticeably longer than the old flat-card approach; the UI shows status text throughout ("Generating hero photo...", etc.) so this reads as progress, not a hang.
+- **Portability:** the embedded component is plain HTML/CSS/JS with no build step, so it renders identically regardless of host OS.
 
 ## 5. Deployment
 
-- Source hosted in a public GitHub repository (required for the free Streamlit Community Cloud connection flow).
-- `requirements.txt` pins the two runtime dependencies: `streamlit` and `Pillow`.
-- Deploy via share.streamlit.io: connect the GitHub repo, point at `app.py` as the entry point; Streamlit Cloud builds and serves the app at a public `*.streamlit.app` URL automatically on every push to the connected branch.
-- No `Procfile`, Docker, or custom server config needed — Streamlit Community Cloud handles the run command natively for a Streamlit entry-point script.
+- Source hosted at `github.com/Dibyajyoti-07/Property-Post-Maker` (public, required for the free Streamlit Community Cloud connection flow).
+- `requirements.txt` pins only `streamlit`.
+- Deploy via share.streamlit.io: connect the GitHub repo, `app.py` as entry point; Streamlit Cloud rebuilds on every push to `main`.
 
-## 6. Proposed File/Folder Layout
+## 6. File/Folder Layout
 
 ```
 Property Post Maker/
-  app.py                     # Streamlit UI + form + orchestration
-  card_generator.py          # Pillow-based image compositing logic
-  branding.py                # Branding constants (placeholder until real assets supplied)
-  requirements.txt           # streamlit, Pillow
-  assets/
-    fonts/                   # bundled OFL-licensed .ttf files
-    logo.png                 # placeholder until real logo supplied
-    background/              # optional fixed background/template image
+  app.py                   # Streamlit form + orchestration
+  generator_template.py    # logo base64 helper + embedded HTML/JS component (chat, AI calls, canvas render)
+  branding.py               # branding constants (placeholders for manager name / phone)
+  requirements.txt          # streamlit
+  logo.png                  # Merlin logo
+  template.png               # visual reference used to design the poster layout
   docs/
     PRD.md
     TRD.md
     IMPLEMENTATION_PLAN.md
     TESTCASES.md
-  tests/
-    test_card_generator.py   # pytest unit tests for the image-generation logic
+    EXECUTION_PROMPT.md
 ```
 
 ## 7. Explicitly Not Used
 
-To satisfy "no paid services": no OpenAI/Anthropic/Google image-generation APIs, no paid stock-photo/icon APIs, no paid font licenses, no paid hosting tier, no paid domain (the default `*.streamlit.app` subdomain is used), no third-party SaaS for storage (images are generated on demand and downloaded directly, never stored).
+To satisfy "no paid services": no OpenAI/Anthropic/Google API keys of our own (Puter.js's free User-Pays model is used instead), no paid stock-photo/icon APIs, no paid font licenses (system sans-serif fonts via canvas), no paid hosting tier, no paid domain.
