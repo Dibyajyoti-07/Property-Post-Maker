@@ -16,24 +16,33 @@ def encode_logo(logo_path: str) -> str:
 _TEMPLATE = r"""
 <style>
   * { box-sizing: border-box; font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+  #app { --bg: #0d0d0f; --fg: #e8e8ea; --panel: #16161a; --border: #2c2c30; --bubble-user: #2a2a30;
+    --bubble-user-fg: #f0f0f2; --muted: #a8a8ae; --greeting: #f2f2f4; }
+  #app[data-theme="light"] { --bg: #ffffff; --fg: #1c1c1f; --panel: #f2f2f3; --border: #e0e0e3;
+    --bubble-user: #e8e8ec; --bubble-user-fg: #1c1c1f; --muted: #6b6b70; --greeting: #16161a; }
   html, body { margin: 0; height: 100%; background: #0d0d0f; }
-  #app { position: relative; display: flex; flex-direction: column; height: 100%; width: 100%; background: #0d0d0f; color: #e8e8ea; }
-  #topbar { flex: none; padding: 16px 28px; border-bottom: 1px solid #1c1c1f; font-size: 15px; font-weight: 600; color: #eee; }
+  #app { position: relative; display: flex; flex-direction: column; height: 100%; width: 100%; background: var(--bg); color: var(--fg); }
+  #topbar { flex: none; padding: 16px 28px; border-bottom: 1px solid var(--border); font-size: 15px; font-weight: 600; }
   #log { flex: 1; overflow-y: auto; padding: 24px clamp(16px, 8vw, 220px); display: flex; flex-direction: column; }
   #log.empty { justify-content: center; }
-  #greeting { text-align: center; font-size: 26px; font-weight: 600; color: #f2f2f4; }
+  #greeting { text-align: center; font-size: 26px; font-weight: 600; color: var(--greeting); }
+  #promptSuggestion { margin: 18px auto 0; max-width: 460px; padding: 12px 16px; border: 1px solid var(--border);
+    border-radius: 12px; background: var(--panel); color: var(--muted); font-size: 13px; line-height: 1.4;
+    text-align: center; cursor: pointer; }
+  #promptSuggestion:hover { color: var(--fg); border-color: #5b8cff; }
+  #promptSuggestion b { color: var(--fg); font-weight: 600; }
   .row { display: flex; margin: 10px 0; }
   .row.user { justify-content: flex-end; }
   .bubble { padding: 10px 16px; border-radius: 16px; max-width: 78%; line-height: 1.45; white-space: pre-wrap; }
-  .row.user .bubble { background: #2a2a30; color: #f0f0f2; border-bottom-right-radius: 4px; }
-  .row.bot .bubble { background: transparent; color: #d8d8dc; padding-left: 4px; max-width: 92%; }
-  #composer { display: flex; align-items: center; gap: 6px; margin: 16px clamp(16px, 8vw, 220px) 22px; padding: 6px 8px 6px 18px; background: #16161a; border: 1px solid #2c2c30; border-radius: 30px; flex: none; }
-  #plusBtn { width: 34px; height: 34px; border-radius: 50%; border: none; background: transparent; color: #999; font-size: 19px; cursor: pointer; flex: none; }
-  #plusBtn:hover { background: #232327; color: #ddd; }
-  #userInput { flex: 1; padding: 12px 6px; border: none; background: transparent; color: #f0f0f0; font-size: 15px; outline: none; }
+  .row.user .bubble { background: var(--bubble-user); color: var(--bubble-user-fg); border-bottom-right-radius: 4px; }
+  .row.bot .bubble { background: transparent; color: var(--fg); padding-left: 4px; max-width: 92%; }
+  #composer { display: flex; align-items: center; gap: 6px; margin: 16px clamp(16px, 8vw, 220px) 22px; padding: 6px 8px 6px 18px; background: var(--panel); border: 1px solid var(--border); border-radius: 30px; flex: none; }
+  #plusBtn { width: 34px; height: 34px; border-radius: 50%; border: none; background: transparent; color: var(--muted); font-size: 19px; cursor: pointer; flex: none; }
+  #plusBtn:hover { background: var(--border); color: var(--fg); }
+  #userInput { flex: 1; padding: 12px 6px; border: none; background: transparent; color: var(--fg); font-size: 15px; outline: none; }
   #sendBtn { width: 38px; height: 38px; border-radius: 50%; border: none; background: #5b8cff; color: white; cursor: pointer; flex: none; font-size: 16px; }
   #sendBtn:disabled { background: #33384a; cursor: not-allowed; }
-  .status-line { display: flex; align-items: center; gap: 8px; color: #a8a8ae; font-size: 14px; margin: 4px 0 10px 4px; }
+  .status-line { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 14px; margin: 4px 0 10px 4px; }
   .spark { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #7c8cff; animation: pulse 1s ease-in-out infinite; }
   @keyframes pulse { 0%,100% { opacity: .3; transform: scale(.8);} 50% { opacity: 1; transform: scale(1.1);} }
   .shimmer-box { width: 100%; max-width: 260px; aspect-ratio: 1080 / 1527; border-radius: 16px;
@@ -46,10 +55,22 @@ _TEMPLATE = r"""
     align-items: center; justify-content: center; border-radius: 50%; background: rgba(20,20,22,.85);
     color: white; text-decoration: none; font-size: 16px; opacity: 0; transition: opacity .15s; }
   .poster-wrap:hover #downloadBtn { opacity: 1; }
-  #authBtn { position: absolute; top: 16px; right: 16px; padding: 8px 16px; border-radius: 20px; border: 1px solid #2c2c30;
-    background: #16161a; color: #eee; font-size: 13px; font-weight: 600; cursor: pointer; z-index: 20; box-shadow: 0 4px 14px rgba(0,0,0,.3); }
-  #authBtn:hover { background: #1e1e22; }
+  #authBar { position: absolute; top: 64px; right: 16px; display: flex; align-items: center; gap: 8px; z-index: 20; }
+  #authBtn { padding: 8px 16px; border-radius: 20px; border: 1px solid var(--border);
+    background: var(--panel); color: var(--fg); font-size: 13px; font-weight: 600; cursor: pointer; box-shadow: 0 4px 14px rgba(0,0,0,.3); flex: none; }
+  #authBtn:hover { filter: brightness(1.15); }
   #authBtn:disabled { opacity: .6; cursor: default; }
+  #authError { position: absolute; top: 108px; right: 16px; max-width: 220px; font-size: 12px; color: #ff8080;
+    text-align: right; z-index: 20; display: none; }
+  #themeToggle { width: 36px; height: 36px; border-radius: 50%; flex: none;
+    border: 1px solid var(--border); background: var(--panel); color: var(--fg); font-size: 15px; cursor: pointer; }
+  #themeToggle:hover { filter: brightness(1.15); }
+  #authNudge { position: absolute; top: 108px; right: 16px; width: 220px; background: var(--panel); border: 1px solid var(--border);
+    border-radius: 14px; padding: 14px 16px; box-shadow: 0 8px 24px rgba(0,0,0,.4); z-index: 19; display: none; }
+  #authNudge.show { display: block; }
+  #authNudge p { margin: 0 0 10px; font-size: 13px; color: var(--muted); line-height: 1.4; }
+  #authNudge button { width: 100%; padding: 9px 0; border: none; border-radius: 8px; background: #5b8cff; color: white; font-size: 13px; font-weight: 600; cursor: pointer; }
+  #authNudgeClose { position: absolute; top: 6px; right: 9px; width: auto !important; padding: 0 !important; background: none !important; color: var(--muted); cursor: pointer; font-size: 14px; line-height: 1; }
   #lightboxOverlay { position: absolute; inset: 0; background: rgba(0,0,0,.8); display: none; align-items: center; justify-content: center; z-index: 30; }
   #lightboxOverlay.open { display: flex; }
   #lightboxCard { position: relative; max-width: min(560px, 90%); max-height: 90%; }
@@ -71,9 +92,21 @@ _TEMPLATE = r"""
   #modalCancel { background: #33333a; color: #ddd; }
 </style>
 <div id="app">
-  <button id="authBtn">Login with Puter</button>
+  <div id="authBar">
+    <button id="themeToggle" title="Toggle theme">&#127769;</button>
+    <button id="authBtn">Login with Puter</button>
+  </div>
+  <div id="authError"></div>
+  <div id="authNudge">
+    <button id="authNudgeClose">&times;</button>
+    <p>Sign in with your free Puter account to generate AI images.</p>
+    <button id="authNudgeBtn">Login with Puter</button>
+  </div>
   <div id="topbar">Property Post Maker</div>
-  <div id="log" class="empty"><div id="greeting">Describe the property you want to advertise</div></div>
+  <div id="log" class="empty">
+    <div id="greeting">Describe the property you want to advertise</div>
+    <div id="promptSuggestion">Try: <b>"4 BHK, 2 stories corner villa at Golf Green Street with pool, gym, indoor-outdoor games, banquet hall and a garden, price 2.3 Cr onwards"</b></div>
+  </div>
   <div id="modalOverlay">
     <div id="modalCard">
       <h3>Custom logo</h3>
@@ -104,6 +137,7 @@ const BRAND = __BRAND_JSON__;
 const DEFAULT_LOGO = __LOGO_DATA_URI__;
 let customLogoDataUri = null;
 
+const appEl = document.getElementById('app');
 const logEl = document.getElementById('log');
 const inputEl = document.getElementById('userInput');
 const sendBtn = document.getElementById('sendBtn');
@@ -144,22 +178,57 @@ window.addEventListener('resize', fitFrame);
 try { window.parent.addEventListener('resize', fitFrame); } catch (e) {}
 
 const authBtn = document.getElementById('authBtn');
+const authError = document.getElementById('authError');
+const authNudge = document.getElementById('authNudge');
+let authNudgeDismissed = false;
+
 function refreshAuthBtn() {
   let signedIn = false;
   try { signedIn = puter.auth.isSignedIn(); } catch (e) {}
   authBtn.textContent = signedIn ? 'Logout' : 'Login with Puter';
   authBtn.dataset.mode = signedIn ? 'out' : 'in';
+  authNudge.classList.toggle('show', !signedIn && !authNudgeDismissed);
 }
-authBtn.addEventListener('click', async () => {
+
+async function doAuth() {
   authBtn.disabled = true;
+  authError.style.display = 'none';
   try {
     if (authBtn.dataset.mode === 'out') { await puter.auth.signOut(); }
     else { await puter.auth.signIn(); }
-  } catch (e) {}
+  } catch (e) {
+    authError.textContent = (authBtn.dataset.mode === 'out' ? 'Sign out failed: ' : 'Sign in failed: ') +
+      (e && e.message ? e.message : 'popup may have been blocked - allow popups for this site and try again.');
+    authError.style.display = 'block';
+  }
   authBtn.disabled = false;
   refreshAuthBtn();
+}
+authBtn.addEventListener('click', doAuth);
+document.getElementById('authNudgeBtn').addEventListener('click', doAuth);
+document.getElementById('authNudgeClose').addEventListener('click', () => {
+  authNudgeDismissed = true;
+  authNudge.classList.remove('show');
 });
 refreshAuthBtn();
+
+const themeToggle = document.getElementById('themeToggle');
+function applyTheme(theme) {
+  if (theme === 'light') { appEl.dataset.theme = 'light'; themeToggle.innerHTML = '&#9728;'; }
+  else { delete appEl.dataset.theme; themeToggle.innerHTML = '&#127769;'; }
+}
+themeToggle.addEventListener('click', () => {
+  const next = appEl.dataset.theme === 'light' ? 'dark' : 'light';
+  applyTheme(next);
+  try { localStorage.setItem('ppm-theme', next); } catch (e) {}
+});
+try { applyTheme(localStorage.getItem('ppm-theme') || 'dark'); } catch (e) { applyTheme('dark'); }
+
+const SUGGESTION_TEXT = '4 BHK, 2 stories corner villa at Golf Green Street with pool, gym, indoor-outdoor games, banquet hall and a garden, price 2.3 Cr onwards';
+document.getElementById('promptSuggestion').addEventListener('click', () => {
+  inputEl.value = SUGGESTION_TEXT;
+  inputEl.focus();
+});
 
 function scrollBottom() { logEl.scrollTop = logEl.scrollHeight; }
 
