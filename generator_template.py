@@ -27,11 +27,11 @@ _TEMPLATE = r"""
   .bubble { padding: 10px 16px; border-radius: 16px; max-width: 78%; line-height: 1.45; white-space: pre-wrap; }
   .row.user .bubble { background: #2a2a30; color: #f0f0f2; border-bottom-right-radius: 4px; }
   .row.bot .bubble { background: transparent; color: #d8d8dc; padding-left: 4px; max-width: 92%; }
-  #composer { display: flex; align-items: center; gap: 10px; padding: 16px clamp(16px, 8vw, 220px) 22px; flex: none; }
-  #plusBtn { width: 40px; height: 40px; border-radius: 50%; border: 1px solid #3a3a40; background: #1a1a1d; color: #ddd; font-size: 20px; cursor: pointer; flex: none; }
-  #plusBtn:hover { background: #232327; }
-  #userInput { flex: 1; padding: 14px 18px; border-radius: 26px; border: 1px solid #2c2c30; background: #16161a; color: #f0f0f0; font-size: 15px; outline: none; }
-  #sendBtn { width: 42px; height: 42px; border-radius: 50%; border: none; background: #5b8cff; color: white; cursor: pointer; flex: none; font-size: 16px; }
+  #composer { display: flex; align-items: center; gap: 6px; margin: 16px clamp(16px, 8vw, 220px) 22px; padding: 6px 8px 6px 18px; background: #16161a; border: 1px solid #2c2c30; border-radius: 30px; flex: none; }
+  #plusBtn { width: 34px; height: 34px; border-radius: 50%; border: none; background: transparent; color: #999; font-size: 19px; cursor: pointer; flex: none; }
+  #plusBtn:hover { background: #232327; color: #ddd; }
+  #userInput { flex: 1; padding: 12px 6px; border: none; background: transparent; color: #f0f0f0; font-size: 15px; outline: none; }
+  #sendBtn { width: 38px; height: 38px; border-radius: 50%; border: none; background: #5b8cff; color: white; cursor: pointer; flex: none; font-size: 16px; }
   #sendBtn:disabled { background: #33384a; cursor: not-allowed; }
   .status-line { display: flex; align-items: center; gap: 8px; color: #a8a8ae; font-size: 14px; margin: 4px 0 10px 4px; }
   .spark { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #7c8cff; animation: pulse 1s ease-in-out infinite; }
