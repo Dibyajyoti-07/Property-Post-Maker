@@ -109,7 +109,6 @@ _TEMPLATE = r"""
     <button id="sendBtn">&#8593;</button>
   </div>
 </div>
-<script src="https://js.puter.com/v2/"></script>
 <script>
 const BRAND = __BRAND_JSON__;
 const GROQ = __GROQ_JSON__;
@@ -424,26 +423,44 @@ let lastImages = null; // { hero, t1, t2, t3 } loaded <img> elements, keyed to l
 const PLAN_SHAPE = '{"badge_text":"LUXURY CORNER VILLA FOR SALE","headline":"short punchy headline, 3-5 words","price_line":"STARTING FROM","price_value":"the price as given","spec_line":"short spec summary e.g. 4 BHK | 2 STORIES | STREET NAME","about_paragraph":"2-3 sentence description using the highlights","benefits":[{"title":"RESORT AMENITIES","desc":"short real description"},{"title":"HOST & CELEBRATE","desc":"short real description"},{"title":"PRIME LOCATION","desc":"short real description"}],' +
   '"hero_prompt":"a photorealistic real estate exterior photo prompt for an AI image generator, incorporating the property description, THEME lighting, and a subtle COLOR accent, no text or logos in the image","thumb_prompts":["photorealistic interior/amenity photo prompt 1 derived from the highlights, THEME lighting, no text","photorealistic interior/amenity photo prompt 2, no text","photorealistic interior/amenity photo prompt 3, no text"]}';
 
-// Tried moving images to Pollinations.ai (free/unlimited/no-login) via
-// puter.net.fetch as a CORS-bypass relay (Pollinations 403s any programmatic
-// fetch directly, only allows plain <img> embeds). It worked once, then
-// puter.net.fetch itself started hanging indefinitely session-wide - confirmed
-// with a fresh tab, a trivial unrelated URL, still hung. Public CORS proxies
-// tried as a fallback (allorigins, corsproxy.io) were equally unreliable
-// (timeout / 401 needing a key). Reverted to puter.ai.txt2img: metered by
-// Puter's per-account credit allotment, but the only option that's actually
-// been reliable end-to-end. Text still runs on Groq (see askJSON above),
-// which has no such ceiling.
-const IMG_MODEL = { model: 'gpt-image-1' };
+// Images: Pollinations.ai's Flux endpoint, free/unlimited/no-login, no Puter
+// involved. A prior attempt via puter.net.fetch (to work around Pollinations
+// blocking programmatic fetch/XHR reads) hit an unrelated Puter relay outage;
+// this fetches Pollinations directly instead. Automated/headless browser
+// testing trips Pollinations' bot-check on this fetch - a real interactive
+// browser session generally shouldn't.
+function pollinationsUrl(prompt, w, h) {
+  const seed = Math.floor(Math.random() * 1e9);
+  return 'https://image.pollinations.ai/prompt/' + encodeURIComponent(prompt) +
+    '?width=' + w + '&height=' + h + '&model=flux&nologo=true&seed=' + seed;
+}
 
-async function genImage(prompt, label, setCaption) {
+function withTimeout(promise, ms) {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error('timed out after ' + ms + 'ms')), ms);
+    promise.then((v) => { clearTimeout(t); resolve(v); }, (e) => { clearTimeout(t); reject(e); });
+  });
+}
+
+async function fetchPollinationsImg(url) {
+  const resp = await withTimeout(fetch(url), 25000);
+  if (!resp.ok) return null;
+  const blob = await resp.blob();
+  const img = await loadImgEl(URL.createObjectURL(blob));
+  return img.naturalWidth ? img : null;
+}
+
+async function genImage(prompt, label, setCaption, w, h) {
   setCaption(label);
-  try {
-    return await puter.ai.txt2img(prompt, IMG_MODEL);
-  } catch (e) {
-    await new Promise((r) => setTimeout(r, 2000));
-    return await puter.ai.txt2img(prompt, IMG_MODEL);
+  const url = pollinationsUrl(prompt, w, h);
+  let img = null;
+  try { img = await fetchPollinationsImg(url); } catch (e) { /* retry below */ }
+  if (!img) {
+    await new Promise((r) => setTimeout(r, 3000));
+    try { img = await fetchPollinationsImg(pollinationsUrl(prompt, w, h)); } catch (e) { /* fall through */ }
   }
+  if (!img) throw new Error('Photo generation failed (image service unavailable)');
+  return img;
 }
 
 // Regenerates only the photos whose prompt actually changed vs. the previous plan
@@ -451,13 +468,13 @@ async function genImage(prompt, label, setCaption) {
 // prevPlan/prevImages null forces generating all four, as on the first pass.
 async function getImagesForPlan(plan, prevPlan, prevImages, setCaption) {
   const slots = [
-    ['hero', plan.hero_prompt, 'Generating hero photo...'],
-    ['t1', plan.thumb_prompts[0], 'Generating photo 1 of 3...'],
-    ['t2', plan.thumb_prompts[1], 'Generating photo 2 of 3...'],
-    ['t3', plan.thumb_prompts[2], 'Generating photo 3 of 3...'],
+    ['hero', plan.hero_prompt, 'Generating hero photo...', 900, 700],
+    ['t1', plan.thumb_prompts[0], 'Generating photo 1 of 3...', 700, 700],
+    ['t2', plan.thumb_prompts[1], 'Generating photo 2 of 3...', 700, 700],
+    ['t3', plan.thumb_prompts[2], 'Generating photo 3 of 3...', 700, 700],
   ];
   const result = {};
-  for (const [key, prompt, label] of slots) {
+  for (const [key, prompt, label, w, h] of slots) {
     const prevPrompt = prevPlan && key === 'hero' ? prevPlan.hero_prompt
       : prevPlan && key === 't1' ? prevPlan.thumb_prompts[0]
       : prevPlan && key === 't2' ? prevPlan.thumb_prompts[1]
@@ -466,8 +483,8 @@ async function getImagesForPlan(plan, prevPlan, prevImages, setCaption) {
     if (prevPlan && prevImages && prevPrompt === prompt) {
       result[key] = prevImages[key];
     } else {
-      // sequential, not parallel: the free image backend throttles concurrent requests
-      result[key] = await genImage(prompt, label, setCaption);
+      // sequential, not parallel: anonymous Pollinations requests are rate-limited to ~1 per 15s
+      result[key] = await genImage(prompt, label, setCaption, w, h);
     }
   }
   return result;

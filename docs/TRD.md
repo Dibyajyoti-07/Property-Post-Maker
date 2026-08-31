@@ -4,20 +4,15 @@
 
 - **Language / shell:** Python 3 + Streamlit — renders the page and injects config into the embedded component. No Python image library is used for the live generation path.
 - **AI text (chat/extraction/planning):** **Groq** (`api.groq.com/openai/v1/chat/completions`, model `openai/gpt-oss-120b`), called directly from the browser — no login prompt for the visitor, ever. Requires a Groq API key, read server-side from `.env` (local) and injected into the component's HTML at render time.
-- **AI image generation:** **Puter.js** `puter.ai.txt2img()` (`gpt-image-1` model), loaded client-side via `https://js.puter.com/v2/`. Free under Puter's "User-Pays" model, but metered against the signed-in account's credit allotment — the app will occasionally prompt Puter's own sign-in popup when generating images. See §1a for why this is the current tradeoff.
+- **AI image generation:** **Pollinations.ai**'s Flux endpoint (`image.pollinations.ai/prompt/...`), fetched directly from the browser — free, unlimited, no login, no API key, no Puter involved.
 - **Compositing:** the browser's HTML5 `<canvas>` API draws the final poster (badge strip, hero + info panel, thumbnails, copy, benefit tiles, contact block, logo) — no server-side image library needed.
 - **No backend for AI calls.** Generation happens entirely in the visitor's browser; the Streamlit process only serves the page and injects field/branding/key config into the embedded component's HTML at render time.
 - **One real secret:** the Groq API key, in a gitignored `.env` (`GROQ_API_KEY`, `GROQ_MODEL`), loaded by a tiny hand-rolled parser in `app.py` (no new pip dependency). It reaches the browser as part of the rendered page — there's no backend to keep it server-side-only, so it's visible via devtools to anyone who inspects the deployed page. Acceptable for a free-tier key with no billing attached; rotate it if it's ever abused.
+- **No Puter dependency anywhere.** Earlier iterations used Puter for both text and (briefly, via a `puter.net.fetch` CORS-relay workaround) images; both were removed at the user's request. Text is Groq, images are direct Pollinations fetches, no login of any kind for visitors.
 
-### 1a. Why images are still on Puter (not a free/unlimited alternative)
+### 1a. Pollinations and automated testing
 
-Multiple free/unlimited image alternatives were tried and rejected after empirical testing, not assumption:
-- **Pollinations.ai's Flux endpoint** is genuinely free and unlimited, but its image host returns HTTP 403 for any programmatic read (`img.crossOrigin`, `fetch()`) — confirmed by testing both directly — while still allowing a plain `<img>` embed. That blocks reading pixels onto `<canvas>` for the final PNG export.
-- Routing the fetch through **`puter.net.fetch()`** (a CORS-bypass relay bundled in Puter.js, unrelated to the image-credit pool) worked in initial testing, but the relay later started hanging indefinitely session-wide — confirmed with a fresh tab and a trivial unrelated URL, which also hung.
-- Generic public CORS proxies tried as a fallback (**allorigins.win**, **corsproxy.io**) were equally unreliable in practice: the former timed out, the latter now requires its own API key (401).
-- Pollinations' text API (a candidate for replacing Puter chat too, before Groq was chosen) actively blocks programmatic access with a Cloudflare Turnstile bot-check ("Missing Turnstile token") — works as a real page load, fails for any `fetch()`.
-
-`puter.ai.txt2img()` is the only image path that's been reliable end-to-end in practice, so it stays, with the credit/login tradeoff that implies. Revisit if Puter's relay stabilizes or a genuinely reliable free/unlimited alternative turns up.
+Pollinations' image endpoint occasionally challenges programmatic `fetch()` requests with a bot-check, which was tripped consistently during this project's own Claude-Code-driven browser automation testing (a well-known signal for headless/CDP-driven traffic). A real interactive browser session generally shouldn't trip it the same way. Because of this, the image-generation path was implemented directly against Pollinations but **not** re-verified end-to-end via automated browser testing after the Puter removal — verify manually in a normal browser session before relying on it for the assignment's sample post.
 
 ## 2. Architecture
 
@@ -29,7 +24,7 @@ The whole experience is one continuous chat, entirely inside a single embedded c
    - **theme**: "Day or Night?" — free-text reply resolved to strict JSON `{"theme":"day"|"night"|"unclear"}`; unclear triggers one re-ask before defaulting.
    - **color**: same pattern, resolved to `{"hex":"#RRGGBB","label":"...","resolved":true|false}`.
    - **generating**: a content-planning call, given the four fields plus the resolved theme/color, returns strict JSON (badge text, headline, price/spec lines, About paragraph, three benefit tiles, and four image prompts baking in the theme's lighting and the accent color).
-3. Four photos (hero + three thumbnails) are generated via `puter.ai.txt2img()` with `{model: 'gpt-image-1'}` (Puter's default model and Replicate-routed FLUX models were both unreliable during earlier testing). Calls run **sequentially**, not in parallel (the free image backend throttles concurrent requests); each call gets one automatic retry on failure. While each photo generates, an animated shimmer placeholder (CSS gradient sweep, sized to the poster's aspect ratio) plus a rotating status caption ("Generating hero photo...", etc.) render inline in the chat, mirroring a ChatGPT/Gemini-style image-generation loading state.
+3. Four photos (hero + three thumbnails) are fetched from Pollinations' Flux endpoint via plain `fetch()` (`pollinationsUrl()`/`fetchPollinationsImg()`), each wrapped in a 25-second timeout; the response is read as a `Blob` and loaded from an object URL so canvas export stays untainted. Calls run **sequentially**, not in parallel (anonymous Pollinations requests are rate-limited to roughly one every 15 seconds); each call gets one automatic retry on failure. While each photo generates, an animated shimmer placeholder (CSS gradient sweep, sized to the poster's aspect ratio) plus a rotating status caption ("Generating hero photo...", etc.) render inline in the chat, mirroring a ChatGPT/Gemini-style image-generation loading state.
 4. The component draws everything onto a 1080×1527 `<canvas>`, computing a manual center-crop for each photo (canvas has no CSS `object-fit`), fills the accent-colored info panel and section rules with the resolved hex, and renders the contact block from the branding constants, using either the default logo or a user-supplied custom logo (see §2a) drawn top-right.
 5. `canvas.toDataURL('image/png')` produces the final image, shown inline as the assistant's final chat message (replacing the shimmer placeholder) with a download link — no round-trip back to Python is needed for the download.
 
@@ -54,8 +49,8 @@ APPLICANT_CREDIT = "Built by Dibyajyoti Sarkar with Claude Code"  # placeholder 
 
 ## 4. Non-Functional Requirements
 
-- **Cost:** $0. Groq's free-tier API key has no billing attached; Puter.js image generation is free under the User-Pays model; hosting is Streamlit Community Cloud's free tier.
-- **First-run auth:** a visitor's first *image* generation may prompt a one-time Puter sign-in popup (free account) once the account's credit allotment needs it — this is expected behavior, not an error. Text (chat/extraction/planning) never prompts anything, since it runs on Groq.
+- **Cost:** $0. Groq's free-tier API key has no billing attached; Pollinations image generation is free and unlimited; hosting is Streamlit Community Cloud's free tier.
+- **No sign-in of any kind.** Neither text (Groq) nor images (Pollinations) ever prompt the visitor to log in or create an account.
 - **Latency:** generation is not instant — chat/planning calls plus four sequential image calls typically take well under a minute; the UI shows status text throughout ("Generating hero photo...", etc.) so this reads as progress, not a hang.
 - **Portability:** the embedded component is plain HTML/CSS/JS with no build step, so it renders identically regardless of host OS.
 
@@ -86,7 +81,7 @@ Property Post Maker/
 
 ## 7. Explicitly Not Used
 
-To satisfy "no paid services": no paid OpenAI/Anthropic/Google API keys (Groq's free tier and Puter's free User-Pays model are used instead), no paid stock-photo/icon APIs, no paid font licenses (system sans-serif fonts via canvas), no paid hosting tier, no paid domain. Groq's key is a free-tier key with no billing method attached to the account.
+To satisfy "no paid services": no paid OpenAI/Anthropic/Google API keys (Groq's free tier and Pollinations' free image endpoint are used instead), no paid stock-photo/icon APIs, no paid font licenses (system sans-serif fonts via canvas), no paid hosting tier, no paid domain. Groq's key is a free-tier key with no billing method attached to the account.
 
 ## 8. Deployment Note: Secrets
 
