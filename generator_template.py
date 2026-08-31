@@ -51,6 +51,15 @@ _TEMPLATE = r"""
   #loginCard p { margin: 0 0 10px; font-size: 13px; color: #ccc; line-height: 1.4; }
   #loginBtn { width: 100%; padding: 9px 0; border: none; border-radius: 8px; background: #5b8cff; color: white; font-size: 13px; font-weight: 600; cursor: pointer; }
   #loginClose { position: absolute; top: 6px; right: 9px; background: none; border: none; color: #777; cursor: pointer; font-size: 14px; line-height: 1; }
+  #lightboxOverlay { position: absolute; inset: 0; background: rgba(0,0,0,.8); display: none; align-items: center; justify-content: center; z-index: 30; }
+  #lightboxOverlay.open { display: flex; }
+  #lightboxCard { position: relative; max-width: min(560px, 90%); max-height: 90%; }
+  #lightboxCard img { max-width: 100%; max-height: 90vh; border-radius: 12px; display: block; }
+  #lightboxDownload { position: absolute; top: 10px; right: 10px; width: 38px; height: 38px; display: flex;
+    align-items: center; justify-content: center; border-radius: 50%; background: rgba(20,20,22,.85); color: white;
+    text-decoration: none; font-size: 18px; }
+  #lightboxClose { position: absolute; top: -14px; right: -14px; width: 30px; height: 30px; border-radius: 50%;
+    border: none; background: #2a2a30; color: #eee; font-size: 16px; cursor: pointer; }
   #modalOverlay { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: none; align-items: center; justify-content: center; z-index: 10; }
   #modalOverlay.open { display: flex; }
   #modalCard { background: #1a1a1d; border: 1px solid #333; border-radius: 14px; padding: 22px; width: 320px; color: #eee; }
@@ -229,6 +238,8 @@ async function handleSend() {
       await handleThemeAnswer(text);
     } else if (stage === 'color') {
       await handleColorAnswer(text);
+    } else if (stage === 'done') {
+      await handleRefinement(text);
     }
   } finally {
     sendBtn.disabled = false;
@@ -357,6 +368,76 @@ async function loadImgEl(imgOrUrl) {
   return im;
 }
 
+let lastPlan = null;
+let lastImages = null; // { hero, t1, t2, t3 } loaded <img> elements, keyed to lastPlan's prompts
+
+const PLAN_SHAPE = '{"badge_text":"LUXURY CORNER VILLA FOR SALE","headline":"short punchy headline, 3-5 words","price_line":"STARTING FROM","price_value":"the price as given","spec_line":"short spec summary e.g. 4 BHK | 2 STORIES | STREET NAME","about_paragraph":"2-3 sentence description using the highlights","benefits":[{"title":"RESORT AMENITIES","desc":"short real description"},{"title":"HOST & CELEBRATE","desc":"short real description"},{"title":"PRIME LOCATION","desc":"short real description"}],' +
+  '"hero_prompt":"a photorealistic real estate exterior photo prompt for an AI image generator, incorporating the property description, THEME lighting, and a subtle COLOR accent, no text or logos in the image","thumb_prompts":["photorealistic interior/amenity photo prompt 1 derived from the highlights, THEME lighting, no text","photorealistic interior/amenity photo prompt 2, no text","photorealistic interior/amenity photo prompt 3, no text"]}';
+
+// Puter's default txt2img model currently errors ("Missing `model`"), and the
+// Replicate-routed FLUX models are flaky (concurrency limits, malformed responses)
+// on the free tier. gpt-image-1 has tested reliably; revisit if it degrades.
+const IMG_MODEL = { model: 'gpt-image-1' };
+
+async function genImage(prompt, label, setCaption) {
+  setCaption(label);
+  try {
+    return await puter.ai.txt2img(prompt, IMG_MODEL);
+  } catch (e) {
+    await new Promise((r) => setTimeout(r, 2000));
+    return await puter.ai.txt2img(prompt, IMG_MODEL);
+  }
+}
+
+// Regenerates only the photos whose prompt actually changed vs. the previous plan
+// (e.g. a copy-only tweak like "shorten the headline" needs no new photos at all);
+// prevPlan/prevImages null forces generating all four, as on the first pass.
+async function getImagesForPlan(plan, prevPlan, prevImages, setCaption) {
+  const slots = [
+    ['hero', plan.hero_prompt, 'Generating hero photo...'],
+    ['t1', plan.thumb_prompts[0], 'Generating photo 1 of 3...'],
+    ['t2', plan.thumb_prompts[1], 'Generating photo 2 of 3...'],
+    ['t3', plan.thumb_prompts[2], 'Generating photo 3 of 3...'],
+  ];
+  const result = {};
+  for (const [key, prompt, label] of slots) {
+    const prevPrompt = prevPlan && key === 'hero' ? prevPlan.hero_prompt
+      : prevPlan && key === 't1' ? prevPlan.thumb_prompts[0]
+      : prevPlan && key === 't2' ? prevPlan.thumb_prompts[1]
+      : prevPlan && key === 't3' ? prevPlan.thumb_prompts[2]
+      : null;
+    if (prevPlan && prevImages && prevPrompt === prompt) {
+      result[key] = prevImages[key];
+    } else {
+      // sequential, not parallel: the free image backend throttles concurrent requests
+      result[key] = await genImage(prompt, label, setCaption);
+    }
+  }
+  return result;
+}
+
+function appendPosterMessage(dataUrl) {
+  const row = document.createElement('div');
+  row.className = 'row bot';
+  const wrap = document.createElement('div');
+  wrap.className = 'poster-wrap';
+  const img = document.createElement('img');
+  img.src = dataUrl;
+  img.style.cursor = 'zoom-in';
+  wrap.appendChild(img);
+  const a = document.createElement('a');
+  a.id = 'downloadBtn';
+  a.href = dataUrl;
+  a.download = (fields.property_type || 'property-post').replace(/[^a-z0-9]+/gi, '-').toLowerCase() + '.png';
+  a.title = 'Download';
+  a.innerHTML = '&#8681;';
+  wrap.appendChild(a);
+  wrap.addEventListener('click', (e) => { if (e.target !== a) openLightbox(dataUrl, a.download); });
+  row.appendChild(wrap);
+  logEl.appendChild(row);
+  scrollBottom();
+}
+
 async function generatePost() {
   const shimmerRow = addShimmer();
   const captionRow = document.createElement('div');
@@ -376,57 +457,59 @@ async function generatePost() {
       'Theme: ' + resolvedTheme + ' (lighting mood)\n' +
       'Color accent: ' + resolvedColor.label + ' (' + resolvedColor.hex + ')\n\n' +
       'Reply with ONLY strict JSON, no prose, no markdown fences, matching exactly this shape (these are illustrative EXAMPLE values for a different property - replace every value with real content derived from the actual inputs above, never copy the examples or leave literal placeholder text like ellipses):\n' +
-      '{"badge_text":"LUXURY CORNER VILLA FOR SALE","headline":"short punchy headline, 3-5 words","price_line":"STARTING FROM","price_value":"the price as given","spec_line":"short spec summary e.g. 4 BHK | 2 STORIES | STREET NAME","about_paragraph":"2-3 sentence description using the highlights","benefits":[{"title":"RESORT AMENITIES","desc":"short real description"},{"title":"HOST & CELEBRATE","desc":"short real description"},{"title":"PRIME LOCATION","desc":"short real description"}],' +
-      '"hero_prompt":"a photorealistic real estate exterior photo prompt for an AI image generator, incorporating the property description, ' + resolvedTheme + ' lighting, and a subtle ' + resolvedColor.label + ' accent, no text or logos in the image","thumb_prompts":["photorealistic interior/amenity photo prompt 1 derived from the highlights, ' + resolvedTheme + ' lighting, no text","photorealistic interior/amenity photo prompt 2, no text","photorealistic interior/amenity photo prompt 3, no text"]}'
+      PLAN_SHAPE.replace(/THEME/g, resolvedTheme).replace(/COLOR/g, resolvedColor.label)
     );
     if (!plan) { throw new Error('Could not plan content.'); }
 
-    // Puter's default txt2img model currently errors ("Missing `model`"), and the
-    // Replicate-routed FLUX models are flaky (concurrency limits, malformed responses)
-    // on the free tier. gpt-image-1 has tested reliably; revisit if it degrades.
-    const IMG_MODEL = { model: 'gpt-image-1' };
-    async function genImage(prompt, label) {
-      setCaption(label);
-      try {
-        return await puter.ai.txt2img(prompt, IMG_MODEL);
-      } catch (e) {
-        await new Promise((r) => setTimeout(r, 2000));
-        return await puter.ai.txt2img(prompt, IMG_MODEL);
-      }
-    }
-    // sequential, not parallel: the free image backend throttles concurrent requests
-    const hero = await genImage(plan.hero_prompt, 'Generating hero photo...');
-    const t1 = await genImage(plan.thumb_prompts[0], 'Generating photo 1 of 3...');
-    const t2 = await genImage(plan.thumb_prompts[1], 'Generating photo 2 of 3...');
-    const t3 = await genImage(plan.thumb_prompts[2], 'Generating photo 3 of 3...');
-
+    const images = await getImagesForPlan(plan, null, null, setCaption);
     setCaption('Composing poster...');
-    const dataUrl = await renderPoster(plan, [hero, t1, t2, t3]);
+    const dataUrl = await renderPoster(plan, [images.hero, images.t1, images.t2, images.t3]);
 
     captionRow.remove();
     shimmerRow.remove();
-    const row = document.createElement('div');
-    row.className = 'row bot';
-    const wrap = document.createElement('div');
-    wrap.className = 'poster-wrap';
-    const img = document.createElement('img');
-    img.src = dataUrl;
-    wrap.appendChild(img);
-    const a = document.createElement('a');
-    a.id = 'downloadBtn';
-    a.href = dataUrl;
-    a.download = (fields.property_type || 'property-post').replace(/[^a-z0-9]+/gi, '-').toLowerCase() + '.png';
-    a.title = 'Download';
-    a.innerHTML = '&#8681;';
-    wrap.appendChild(a);
-    row.appendChild(wrap);
-    logEl.appendChild(row);
-    scrollBottom();
+    appendPosterMessage(dataUrl);
+    lastPlan = plan;
+    lastImages = images;
     stage = 'done';
+    inputEl.placeholder = 'Suggest a change to refine it...';
   } catch (err) {
     captionRow.remove();
     shimmerRow.remove();
     addBubble('Something went wrong generating your post: ' + err.message + '. Please reload and try again.', 'bot');
+  }
+}
+
+async function handleRefinement(text) {
+  const status = addStatusLine('Applying your changes...');
+  try {
+    const plan = await askJSON(
+      'You already produced this property-ad poster plan (strict JSON): ' + JSON.stringify(lastPlan) + '\n' +
+      'Current theme: ' + resolvedTheme + '. Current color accent: ' + resolvedColor.label + ' (' + resolvedColor.hex + ').\n' +
+      'The user has now requested this change: "' + text.replace(/"/g, "'") + '"\n' +
+      'Produce an UPDATED plan reflecting ONLY the requested change(s) - keep every other field exactly as it was unless the change requires it to differ. ' +
+      'If the request changes the theme or color, include updated "theme" ("day" or "night") and "color_hex"/"color_label" fields; omit them if unchanged. ' +
+      'Only rewrite hero_prompt/thumb_prompts if the requested change actually affects what the photos should show (e.g. a lighting/color/scene change) - leave them byte-identical to the previous plan if the change is copy-only (e.g. wording, price, headline).\n' +
+      'Reply with ONLY strict JSON, no prose, no markdown fences, matching this shape:\n' + PLAN_SHAPE.replace(/THEME/g, resolvedTheme).replace(/COLOR/g, resolvedColor.label)
+    );
+    if (!plan) { throw new Error('Could not apply that change.'); }
+    if (plan.theme === 'day' || plan.theme === 'night') resolvedTheme = plan.theme;
+    if (plan.color_hex && /^#[0-9a-fA-F]{6}$/.test(plan.color_hex)) {
+      resolvedColor = { hex: plan.color_hex, label: plan.color_label || resolvedColor.label };
+    }
+
+    const setCaption = (t) => { status.querySelector('.label').textContent = t; };
+    const images = await getImagesForPlan(plan, lastPlan, lastImages, setCaption);
+    setCaption('Composing poster...');
+    const dataUrl = await renderPoster(plan, [images.hero, images.t1, images.t2, images.t3]);
+
+    status.remove();
+    addBubble("Here's the updated version:", 'bot');
+    appendPosterMessage(dataUrl);
+    lastPlan = plan;
+    lastImages = images;
+  } catch (err) {
+    status.remove();
+    addBubble('Could not apply that change: ' + err.message + '. Try describing it differently.', 'bot');
   }
 }
 
