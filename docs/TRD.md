@@ -10,15 +10,21 @@
 
 ## 2. Architecture
 
-1. `app.py` renders the 4-field Streamlit form (`st.text_input` / `st.text_area`) with a submit button; validates all four are non-empty (inline `st.error` per missing field).
-2. On valid submit, `app.py` calls `generator_template.build_component_html(fields, branding_data)` — `branding_data` includes the Merlin logo read from disk and base64-inlined as a `data:image/png;base64,...` URI (`generator_template.encode_logo`), since the component runs in a sandboxed `srcdoc` iframe with no access to relative file paths.
-3. `app.py` renders the returned HTML via `st.components.v1.html(html, height=1700, scrolling=True)`.
-4. Inside the component: a chat-bubble UI asks "Day or Night theme?" — the user's free-text reply goes to `puter.ai.chat()` with an instruction to reply with strict JSON (`{"theme":"day"|"night"|"unclear"}`); an `"unclear"` result triggers one re-ask before defaulting.
-5. Same pattern for "What color scheme?" — resolved to `{"hex":"#RRGGBB","label":"...","resolved":true|false}`.
-6. A content-planning `puter.ai.chat()` call, given the four fields plus the resolved theme/color, returns strict JSON: badge text, headline, price/spec lines, an About paragraph, three benefit tiles, and four image prompts (hero + three thumbnails) that explicitly bake in the theme's lighting and the accent color.
-7. Four `puter.ai.txt2img()` calls generate the hero and three thumbnail photos, using the `gpt-image-1` model explicitly (Puter's default model and the Replicate-routed FLUX models were unreliable on the free tier during development — see code comment in `generator_template.py`). Calls run **sequentially**, not in parallel, because the free image backend throttles concurrent requests; each call gets one automatic retry on failure.
-8. The component draws everything onto a 1080×1527 `<canvas>`, computing a manual center-crop for each photo (canvas has no CSS `object-fit`), fills the accent-colored info panel and section rules with the resolved hex, and renders the contact block from the branding constants.
-9. `canvas.toBlob`/`toDataURL('image/png')` produces the final image; an in-component `<img>` preview and `<a download>` link are shown — no round-trip back to Python is needed for the download.
+The whole experience is one continuous chat, entirely inside a single embedded component — there is no separate Streamlit form.
+
+1. `app.py` calls `generator_template.build_component_html(branding_data)` on every page load — `branding_data` includes the Merlin logo read from disk and base64-inlined as a `data:image/png;base64,...` URI (`generator_template.encode_logo`), since the component runs in a sandboxed `srcdoc` iframe with no access to relative file paths. Rendered via `st.components.v1.html(html, height=900, scrolling=True)`.
+2. Inside the component, a client-side state machine (`stage`: `collecting` → `theme` → `color` → `generating` → `done`) drives everything:
+   - **collecting**: the assistant asks the user to describe the property; each reply is appended to an accumulating text buffer and sent to `puter.ai.chat()`, instructed to extract `{property_type, location, price, highlights, missing}` as strict JSON — Location is never listed as missing (the model is told to invent a plausible one itself); if `property_type`/`price`/`highlights` are still absent, the assistant asks specifically for those and loops.
+   - **theme**: "Day or Night?" — free-text reply resolved via `puter.ai.chat()` to strict JSON `{"theme":"day"|"night"|"unclear"}`; unclear triggers one re-ask before defaulting.
+   - **color**: same pattern, resolved to `{"hex":"#RRGGBB","label":"...","resolved":true|false}`.
+   - **generating**: a content-planning `puter.ai.chat()` call, given the four fields plus the resolved theme/color, returns strict JSON (badge text, headline, price/spec lines, About paragraph, three benefit tiles, and four image prompts baking in the theme's lighting and the accent color).
+3. Four `puter.ai.txt2img()` calls generate the hero and three thumbnail photos, using the `gpt-image-1` model explicitly (Puter's default model and the Replicate-routed FLUX models were unreliable on the free tier during development — see code comment in `generator_template.py`). Calls run **sequentially**, not in parallel, because the free image backend throttles concurrent requests; each call gets one automatic retry on failure. While each photo generates, an animated shimmer placeholder (CSS gradient sweep, sized to the poster's aspect ratio) plus a rotating status caption ("Generating hero photo...", etc.) render inline in the chat, mirroring a ChatGPT/Gemini-style image-generation loading state.
+4. The component draws everything onto a 1080×1527 `<canvas>`, computing a manual center-crop for each photo (canvas has no CSS `object-fit`), fills the accent-colored info panel and section rules with the resolved hex, and renders the contact block from the branding constants, using either the default logo or a user-supplied custom logo (see §2a) drawn top-right.
+5. `canvas.toDataURL('image/png')` produces the final image, shown inline as the assistant's final chat message (replacing the shimmer placeholder) with a download link — no round-trip back to Python is needed for the download.
+
+## 2a. Custom Logo Upload
+
+A "+" button beside the chat's send button opens a modal with a file input. Selecting an image reads it via `FileReader.readAsDataURL` into a `customLogoDataUri` JS variable (with a live preview in the modal before saving); once saved, that data URI is used instead of the default branding logo for any poster generated in that browser session. Nothing is uploaded to a server — the file never leaves the browser.
 
 ## 3. Branding Configuration
 

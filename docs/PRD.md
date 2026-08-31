@@ -14,22 +14,22 @@ Agents and small builders currently make property posts by hand in Canva or What
 
 A real-estate agent, broker, or small builder/developer who lists properties and shares posts on WhatsApp groups and social media on a near-daily basis. They are not a designer and do not want to open Canva or Photoshop, or hunt for stock photography, for every listing.
 
-## 4. The Four Input Fields
+## 4. The Four Input Fields — Collected Conversationally
 
-These are the only fields the user fills in directly, on one form. All four are required — the app will not proceed with any of them empty.
+The tool is a single continuous chat, not a form. The user describes the property in their own words, in one message or several — e.g. "a 4 bhk 2 stories corner villa at golf green street with pool and gym, indoor-outdoor games, banquet, town hall, garden and children's park, price 2.3 cr". The assistant extracts four fields from whatever was said:
 
-| Field | Label shown in UI | Example value | Notes |
-|---|---|---|---|
-| 1 | Property & Type | "4 BHK, 2 Stories Corner Villa, Golf Green Street" | Free text. Used as the poster headline and folded into the AI content-planning and photo prompts. |
-| 2 | Location | "Sushant Golf City, Lucknow" | Free text, folded into the spec line and photo prompts. |
-| 3 | Price | "₹2.3 Cr onwards" | Free text (not a strict number field) so the user can express ranges, "onwards", "negotiable", etc. Must render the ₹ symbol correctly. |
-| 4 | Highlights | "Pool, gym, indoor-outdoor games, banquet, town hall, garden and children's park" | Free text describing amenities/features. Drives the "About the property" copy, the three benefit tiles, and which amenities the AI illustrates in the overview photos. |
+| Field | Example value | Notes |
+|---|---|---|
+| 1 | Property & Type | "4 BHK, 2 Stories Corner Villa" — used as the poster headline and folded into the AI content-planning and photo prompts. |
+| 2 | Location | "Golf Green Street, Kolkata" — if the user never states one, the assistant invents a plausible, realistic-sounding location itself rather than asking or leaving it blank (see §5a). |
+| 3 | Price | "₹2.3 Cr onwards" — free-form, must render the ₹ symbol correctly. |
+| 4 | Highlights | "Pool, gym, indoor-outdoor games, banquet, town hall, garden and children's park" — drives the About paragraph, the three benefit tiles, and which amenities the AI illustrates in the overview photos. |
 
-Validation: all four fields required (empty submit is blocked with an inline message per missing field). No format enforcement beyond required, since real listings vary too much for rigid parsing.
+## 4a. Missing-Field Follow-Up
 
-## 5. Guided Style Questions (after the form)
+If Property & Type, Price, or Highlights cannot be determined from what the user has said so far, the assistant asks specifically for just the missing ones (e.g. "Could you also tell me the price?") and re-extracts once the user replies — looping until all three are present. **Location is the one exception:** it is never asked for; if absent, the assistant silently fills in a plausible dummy location so the flow is never blocked on it.
 
-Once the four fields are submitted, the tool asks two follow-up questions in a short chat exchange, in free text (not dropdowns):
+## 5. Guided Style Questions
 
 1. **Theme** — "Should the post use a Day or Night theme?" The user's free-text reply (e.g. "day", "let's go night mode") is resolved by the assistant to `day` or `night`; an unclear answer is re-asked once before defaulting.
 2. **Color scheme** — "What color scheme should the ad use?" The user's free-text reply (e.g. "lime green", "navy and gold") is resolved to a specific accent color used throughout the poster; an unclear answer is re-asked once before defaulting.
@@ -43,7 +43,7 @@ These appear on every generated poster automatically:
 - **Layout** — one fixed poster structure (badge strip, hero + info panel, overview photo row, About section, three benefit tiles, contact block) applied automatically. The user does not arrange elements.
 - **AI-generated photography** — a photorealistic hero exterior photo plus three amenity/overview photos, generated to match the property description, the chosen theme's lighting, and the chosen accent color — no stock photos, no user-supplied images.
 - **Written copy** — headline, spec line, an "About the property" paragraph, and three benefit tiles with titles and descriptions, all generated from the user's own Highlights text, not generic filler.
-- **Logo / brand strip** — the agency/builder's logo, placed in a consistent top-right position on every poster.
+- **Logo / brand strip** — the agency/builder's logo, placed in a consistent top-right position on every poster. Defaults to the configured company logo; the user can optionally override it per-session via a "+" button beside the chat send button, which opens a popup to upload a custom logo image used on that poster instead.
 - **Contact block** — company name, manager's name, phone/WhatsApp number, and office address, so every post is immediately actionable.
 - **Applicant credit** — a small, permanent credit line naming the person who built the tool, shown in the app UI, satisfying the assignment's "your name in the tool" requirement.
 

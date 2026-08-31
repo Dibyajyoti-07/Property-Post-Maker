@@ -4,9 +4,11 @@
 
 | ID | Case | Steps | Expected Result |
 |---|---|---|---|
-| UI-01 | All fields empty, submit | Leave all four fields blank, click Continue | Generation is blocked; inline error(s) identify which field(s) are missing. No chat step starts. |
-| UI-02 | One field empty | Fill three fields, leave one (e.g. Highlights) blank, click Continue | Generation is blocked; error identifies the missing field specifically. |
-| UI-03 | Typical/happy path | Fill all four fields with realistic values, answer "Day" then "lime green" in the chat | Two chat calls resolve immediately; content-planning call returns a full plan; four photos generate sequentially with status text; final 1080×1527 PNG poster matches the fields entered. **Verified 2026-08-31**: ran end-to-end via the villa example from the assignment brief — passed. |
+| UI-01 | Describe with all fields present in one message | Send one message naming type, location, price, and highlights all together | Assistant extracts all four in one pass with no follow-up question; moves straight to the theme question. |
+| UI-02 | Omit price/type/highlights | Send a description missing one of these three | Assistant asks specifically for the missing one(s) by name, and only those; re-extracts on the next reply. |
+| UI-01b | Omit location entirely | Send a description with no location mentioned | Assistant never asks for it; silently fills a plausible, realistic-sounding dummy location, visible in the final poster's spec line and About paragraph. **Verified 2026-08-31**: omitted location for a Kolkata-area villa description → assistant filled "Banjara Hills, Hyderabad" without asking, poster generated correctly. |
+| UI-03 | Typical/happy path | Describe the property in one message, answer "Day" then "lime green" in the chat | Content-planning call returns a full plan; four photos generate sequentially with an animated shimmer placeholder and rotating caption per photo; final 1080×1527 PNG poster renders inline in the chat. **Verified 2026-08-31**: ran end-to-end via the assignment's villa example — passed. |
+| UI-11 | Custom logo upload | Click the "+" button beside Send, choose an image file, click Save | Modal shows a live preview before saving; a confirmation line appears in the chat; the next generated poster uses the uploaded logo instead of the default. |
 | UI-03b | Ambiguous theme/color answer | Answer the theme question with something unresolvable (e.g. "maybe") | The bot re-asks once instead of guessing; a second unclear answer defaults to Day rather than hanging. Same for color. |
 | UI-04 | Long Property & Type text | Enter a headline well beyond ~60 characters | Headline wraps inside its panel; no overflow past the card edge. |
 | UI-05 | Long Highlights text | Enter 6+ highlight items | About paragraph and benefit tiles still fit their boxes; text wraps rather than overflowing. |
