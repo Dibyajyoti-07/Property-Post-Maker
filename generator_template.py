@@ -46,11 +46,10 @@ _TEMPLATE = r"""
     align-items: center; justify-content: center; border-radius: 50%; background: rgba(20,20,22,.85);
     color: white; text-decoration: none; font-size: 16px; opacity: 0; transition: opacity .15s; }
   .poster-wrap:hover #downloadBtn { opacity: 1; }
-  #loginCard { position: absolute; top: 16px; right: 16px; width: 220px; background: #16161a; border: 1px solid #2c2c30;
-    border-radius: 14px; padding: 14px 16px; box-shadow: 0 8px 24px rgba(0,0,0,.4); z-index: 20; }
-  #loginCard p { margin: 0 0 10px; font-size: 13px; color: #ccc; line-height: 1.4; }
-  #loginBtn { width: 100%; padding: 9px 0; border: none; border-radius: 8px; background: #5b8cff; color: white; font-size: 13px; font-weight: 600; cursor: pointer; }
-  #loginClose { position: absolute; top: 6px; right: 9px; background: none; border: none; color: #777; cursor: pointer; font-size: 14px; line-height: 1; }
+  #authBtn { position: absolute; top: 16px; right: 16px; padding: 8px 16px; border-radius: 20px; border: 1px solid #2c2c30;
+    background: #16161a; color: #eee; font-size: 13px; font-weight: 600; cursor: pointer; z-index: 20; box-shadow: 0 4px 14px rgba(0,0,0,.3); }
+  #authBtn:hover { background: #1e1e22; }
+  #authBtn:disabled { opacity: .6; cursor: default; }
   #lightboxOverlay { position: absolute; inset: 0; background: rgba(0,0,0,.8); display: none; align-items: center; justify-content: center; z-index: 30; }
   #lightboxOverlay.open { display: flex; }
   #lightboxCard { position: relative; max-width: min(560px, 90%); max-height: 90%; }
@@ -72,11 +71,7 @@ _TEMPLATE = r"""
   #modalCancel { background: #33333a; color: #ddd; }
 </style>
 <div id="app">
-  <div id="loginCard">
-    <button id="loginClose">&times;</button>
-    <p>Sign in with your free Puter account to generate AI images.</p>
-    <button id="loginBtn">Login with Puter</button>
-  </div>
+  <button id="authBtn">Login with Puter</button>
   <div id="topbar">Property Post Maker</div>
   <div id="log" class="empty"><div id="greeting">Describe the property you want to advertise</div></div>
   <div id="modalOverlay">
@@ -148,16 +143,23 @@ fitFrame();
 window.addEventListener('resize', fitFrame);
 try { window.parent.addEventListener('resize', fitFrame); } catch (e) {}
 
-const loginCard = document.getElementById('loginCard');
-function refreshLoginCard() {
-  try { if (puter.auth.isSignedIn()) loginCard.style.display = 'none'; } catch (e) {}
+const authBtn = document.getElementById('authBtn');
+function refreshAuthBtn() {
+  let signedIn = false;
+  try { signedIn = puter.auth.isSignedIn(); } catch (e) {}
+  authBtn.textContent = signedIn ? 'Logout' : 'Login with Puter';
+  authBtn.dataset.mode = signedIn ? 'out' : 'in';
 }
-document.getElementById('loginClose').addEventListener('click', () => { loginCard.style.display = 'none'; });
-document.getElementById('loginBtn').addEventListener('click', async () => {
-  try { await puter.auth.signIn(); } catch (e) {}
-  refreshLoginCard();
+authBtn.addEventListener('click', async () => {
+  authBtn.disabled = true;
+  try {
+    if (authBtn.dataset.mode === 'out') { await puter.auth.signOut(); }
+    else { await puter.auth.signIn(); }
+  } catch (e) {}
+  authBtn.disabled = false;
+  refreshAuthBtn();
 });
-refreshLoginCard();
+refreshAuthBtn();
 
 function scrollBottom() { logEl.scrollTop = logEl.scrollHeight; }
 
