@@ -90,6 +90,13 @@ _TEMPLATE = r"""
       </div>
     </div>
   </div>
+  <div id="lightboxOverlay">
+    <div id="lightboxCard">
+      <button id="lightboxClose">&times;</button>
+      <img id="lightboxImg" />
+      <a id="lightboxDownload" title="Download">&#8681;</a>
+    </div>
+  </div>
   <div id="composer">
     <button id="plusBtn" title="Add custom logo">+</button>
     <input id="userInput" type="text" placeholder="Describe the property..." />
@@ -109,6 +116,17 @@ const plusBtn = document.getElementById('plusBtn');
 const modal = document.getElementById('modalOverlay');
 const logoFile = document.getElementById('logoFile');
 const logoPreview = document.getElementById('logoPreview');
+const lightbox = document.getElementById('lightboxOverlay');
+
+function openLightbox(dataUrl, filename) {
+  document.getElementById('lightboxImg').src = dataUrl;
+  const dl = document.getElementById('lightboxDownload');
+  dl.href = dataUrl;
+  dl.download = filename;
+  lightbox.classList.add('open');
+}
+document.getElementById('lightboxClose').addEventListener('click', () => lightbox.classList.remove('open'));
+lightbox.addEventListener('click', (e) => { if (e.target === lightbox) lightbox.classList.remove('open'); });
 
 let stage = 'collecting'; // collecting -> theme -> color -> generating -> done
 let collectedText = '';
